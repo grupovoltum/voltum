@@ -382,12 +382,11 @@ function rangoSemana(){
 
 async function loadDash(){
   var tasks=[ db.collection('obras').get(), db.collection('clientes').get() ];
-  if(isSocio()){ tasks.push(db.collection('presupuestos').get()); tasks.push(db.collection('movimientos').get()); }
+  if(isSocio()){ tasks.push(db.collection('presupuestos').get()); }
   var res=await Promise.all(tasks);
   DASH.obras=res[0].docs.map(function(d){return d.data();});
   DASH.clientes=res[1].docs.map(function(d){return d.data();});
   DASH.presupuestos=(isSocio()&&res[2])?res[2].docs.map(function(d){return d.data();}):[];
-  DASH.movimientos=(isSocio()&&res[3])?res[3].docs.map(function(d){return d.data();}):[];
   DASH.loaded=true;
 }
 
@@ -418,39 +417,56 @@ function semanaBlock(texto){
     '<div style="color:var(--ink-soft);font-size:13.5px;line-height:1.5">'+texto+'</div></div>';
 }
 
-function renderInicioSocio(c){
-  var html='<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="btn ghost sm" onclick="refreshDash()">\u21bb Actualizar</button></div>';
-  var obras=DASH.obras, activas=obras.filter(obraActiva);
-  var cartera=activas.reduce(function(a,o){return a+(Number(o.valor)||0);},0);
-  var totalCob=0, falta=0;
-  activas.forEach(function(o){ var cob=cobradoDe(o.id); totalCob+=cob; falta+=Math.max(0,(Number(o.valor)||0)-cob); });
-  var presuPend=DASH.presupuestos.filter(function(p){return p.estado==='pendiente';});
-  var html='';
-  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px">'+
-    kpi('Obras activas',activas.length)+
-    kpi('Cartera (valor)',fmtMoney(cartera),'var(--info)')+
-    kpi('Cobrado',fmtMoney(totalCob),'var(--volt-deep)')+
-    kpi('Falta cobrar',fmtMoney(falta),'var(--amber)')+
+function obraRow(o){
+  return '<div style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-top:1px solid var(--line)">'+
+    '<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:14px">'+esc(o.nombre)+'</div>'+
+    '<div style="font-size:12px;color:var(--ink-faint)">'+esc(dashClienteNombre(o.clienteId))+'</div></div>'+
+    (o.etapa?'<span class="pill" style="background:var(--bg);color:var(--ink-soft)">'+esc(o.etapa)+'</span>':'')+
   '</div>';
-  // presupuestos pendientes
-  if(presuPend.length){
-    html+='<div class="card" style="border-left:3px solid var(--amber)">'+
-      '<div class="card-h" style="color:var(--amber)">Requiere atención</div>'+
-      '<div style="font-size:14px"><b>'+presuPend.length+'</b> presupuesto(s) pendiente(s) de confirmar.</div>'+
-      '<div style="font-size:12.5px;color:var(--ink-faint);margin-top:4px">Los confirmás desde la app de Caja → Obras.</div></div>';
+}
+function listaObrasCard(titulo,arr,emptyMsg,colapsable){
+  if(!arr.length) return '<div class="card" style="padding:0;overflow:hidden"><div class="card-h" style="padding:16px 18px 16px">'+titulo+' · 0</div><div class="empty" style="padding:0 18px 20px">'+emptyMsg+'</div></div>';
+  var rows=arr.map(obraRow).join('');
+  if(colapsable){
+    return '<div class="card" style="padding:0;overflow:hidden"><details><summary style="cursor:pointer;padding:16px 18px;font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--ink-faint)">'+titulo+' · '+arr.length+'</summary><div style="padding-bottom:6px">'+rows+'</div></details></div>';
   }
-  // esta semana (reservado)
+  return '<div class="card" style="padding:0;overflow:hidden"><div class="card-h" style="padding:16px 18px 0">'+titulo+' · '+arr.length+'</div><div style="padding-bottom:6px">'+rows+'</div></div>';
+}
+function listaPresuCard(arr){
+  var header='<div class="card-h" style="color:var(--amber);padding:16px 18px '+(arr.length?'0':'8px')+'">Pendientes de confirmar · '+arr.length+'</div>';
+  var body;
+  if(!arr.length){ body='<div class="empty" style="padding:0 18px 20px">No hay presupuestos pendientes.</div>'; }
+  else {
+    body=arr.map(function(p){
+      return '<div style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-top:1px solid var(--line)">'+
+        '<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:14px">'+esc(p.obra||'(obra)')+'</div>'+
+        '<div style="font-size:12px;color:var(--ink-faint)">'+esc(p.clienteNombre||'—')+'</div></div></div>';
+    }).join('')+'<div style="font-size:12px;color:var(--ink-faint);padding:8px 18px 14px">Se confirman desde la app de Caja → Obras.</div>';
+  }
+  return '<div class="card" style="padding:0;overflow:hidden;border-left:3px solid var(--amber)">'+header+body+'</div>';
+}
+function renderInicioSocio(c){
+  var obras=DASH.obras;
+  var activas=obras.filter(function(o){var e=(o.estado||'').toLowerCase();return e!=='finalizada'&&e!=='suspendida';});
+  var finalizadas=obras.filter(function(o){return (o.estado||'').toLowerCase()==='finalizada';});
+  var pend=DASH.presupuestos.filter(function(p){return p.estado==='pendiente';});
+  var html='<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="btn ghost sm" onclick="refreshDash()">↻ Actualizar</button></div>';
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:16px">'+
+    kpi('Obras activas',activas.length,'var(--volt-deep)')+
+    kpi('Finalizadas',finalizadas.length,'var(--ink-soft)')+
+    kpi('Pendientes de confirmar',pend.length,'var(--amber)')+
+  '</div>';
+  html+=listaObrasCard('Obras activas',activas,'No hay obras activas.',false);
+  html+=listaPresuCard(pend);
+  html+=listaObrasCard('Finalizadas',finalizadas,'Todavía no hay obras finalizadas.',true);
   html+=semanaBlock('Acá vas a ver la agenda del equipo cuando activemos la programación de obra (próxima etapa).');
-  // accesos rápidos
-  html+='<div class="card"><div class="card-h">Accesos rápidos</div>'+
-    '<div style="display:flex;gap:10px;flex-wrap:wrap">'+
-      '<button class="btn primary" onclick="go(\'presupuestador\')">Nuevo presupuesto</button>'+
-      '<button class="btn" onclick="go(\'obras\')">Ver obras</button>'+
-      '<button class="btn" onclick="go(\'clientes\')">Ver clientes</button>'+
-    '</div></div>';
+  html+='<div class="card"><div class="card-h">Accesos rápidos</div><div style="display:flex;gap:10px;flex-wrap:wrap">'+
+    '<button class="btn primary" onclick="go(\'presupuestador\')">Nuevo presupuesto</button>'+
+    '<button class="btn" onclick="go(\'obras\')">Ver obras</button>'+
+    '<button class="btn" onclick="go(\'clientes\')">Ver clientes</button>'+
+  '</div></div>';
   c.innerHTML=html;
 }
-
 function renderInicioColab(c){
   var activas=DASH.obras.filter(obraActiva);
   var html='<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="btn ghost sm" onclick="refreshDash()">\u21bb Actualizar</button></div>';
