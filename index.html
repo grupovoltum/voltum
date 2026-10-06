@@ -353,6 +353,7 @@ function go(mod){
   toggleSide(false);
   if(mod==='inicio') renderInicio();
   else if(mod==='obras'){ openObraId=null; setupObras(); renderObras(); }
+  else if(mod==='presupuestador') renderPresupuestador();
   else if(mod==='usuarios') renderUsuarios();
   else renderSoon(mod);
 }
@@ -542,7 +543,7 @@ function setupObras(){
 
 function obClienteNombre(id){var c=OB.clientes.find(function(x){return x.id==id;});return c?c.nombre:'—';}
 function getProd(oid){ if(!OB.prod[oid])OB.prod[oid]={ambientes:[],tareasObra:{}}; if(!OB.prod[oid].ambientes)OB.prod[oid].ambientes=[]; if(!OB.prod[oid].tareasObra)OB.prod[oid].tareasObra={}; return OB.prod[oid]; }
-function saveProd(oid){var p=getProd(oid);db.collection('obras_prod').doc(String(oid)).set({ambientes:p.ambientes,tareasObra:p.tareasObra}).catch(function(e){toast('Error al guardar: '+e.message);});}
+function saveProd(oid){var p=getProd(oid);db.collection('obras_prod').doc(String(oid)).set({ambientes:p.ambientes,tareasObra:p.tareasObra},{merge:true}).catch(function(e){toast('Error al guardar: '+e.message);});}
 function chkBox(on){return '<span style="width:20px;height:20px;flex-shrink:0;border:2px solid '+(on?'var(--volt)':'var(--line)')+';background:'+(on?'var(--volt)':'transparent')+';border-radius:6px;display:inline-grid;place-items:center">'+(on?'<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="var(--volt-ink)" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>':'')+'</span>';}
 function estadoPill(e){var map={pendiente:['Pendiente de confirmar','#fff6e5','#b0760c'],activa:['Activa','#e2faef','#0a7d43'],finalizada:['Finalizada','#eef1f5','#5A657C'],suspendida:['Cancelada','#fdecec','#c0392b']};var m=map[(e||'activa').toLowerCase()]||[e,'#eef1f5','#5A657C'];return '<span style="flex-shrink:0;padding:3px 10px;border-radius:99px;font-size:11px;font-weight:600;background:'+m[1]+';color:'+m[2]+'">'+esc(m[0])+'</span>';}
 
@@ -602,6 +603,7 @@ function renderObraDetail(){
   var _cells=_tt.map(function(tp){return '<div style="min-width:70px"><div style="font-size:20px;font-weight:800;font-family:\'Space Grotesk\'">'+(tot[tp]||0)+'</div><div style="font-size:11px;color:var(--ink-faint)">'+esc(tp)+'</div></div>';}).join('');
   html+='<div class="card"><div class="card-h">Total de bocas · suma de ambientes</div><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end">'+_cells+
     '<div style="margin-left:auto;text-align:right"><div style="font-size:24px;font-weight:800;font-family:\'Space Grotesk\';color:var(--volt-deep)">'+totalB+'</div><div style="font-size:12px;color:var(--ink-faint)">Total</div></div></div></div>';
+  if(p.materiales&&p.materiales.length){ html+='<div class="card"><div class="card-h">Materiales necesarios · del presupuesto</div>'+p.materiales.map(function(m){return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid var(--line);font-size:14px"><span>'+esc(m.nombre)+'</span><span style="font-family:\'Space Grotesk\';font-weight:700">'+m.cant+' '+esc(m.unidad||'')+'</span></div>';}).join('')+'</div>'; }
   if(!p.ambientes.length)html+='<div class="empty">Todavía no cargaste ambientes.'+(soc?' Sumá el primero 👇':'')+'</div>';
   else html+=p.ambientes.map(function(a){return ambienteCardHub(o.id,a,soc);}).join('');
   if(soc)html+='<button class="btn primary" style="margin-top:12px" onclick="addAmbienteMenu(\''+o.id+'\')">'+ICO.plus+' Agregar ambiente</button>';
@@ -688,6 +690,9 @@ function quickCliente(obraId){
   }).catch(function(e){alert('Error: '+e.message);});
 }
 
+function renderPresupuestador(){
+  $('#content').innerHTML='<div style="height:calc(100vh - 150px);min-height:520px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#0C0C0C"><iframe src="https://grupovoltum.github.io/voltum-presupuestos/" style="width:100%;height:100%;border:0" title="Presupuestador" allow="clipboard-write"></iframe></div>';
+}
 function renderSoon(mod){
   $('#content').innerHTML='<div class="soon"><div class="big">Módulo "'+MODULOS[mod].label+'"</div>'+
     'Lo construimos en la próxima etapa. Va a conectarse a los mismos datos que Caja, así todo queda relacionado.</div>';
