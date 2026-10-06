@@ -361,7 +361,7 @@ function go(mod){
 /* ============================================================
    MÓDULO INICIO (dashboard, según rol)
    ============================================================ */
-var DASH={obras:[],clientes:[],presupuestos:[],movimientos:[],loaded:false};
+var DASH={obras:[],clientes:[],presupuestos:[],movimientos:[],prod:{},loaded:false};
 var INGRESOS_DASH=['cobro','ingreso','deposito'];
 function fmtMoney(n){return '$ '+(Number(n)||0).toLocaleString('es-AR');}
 function dashClienteNombre(id){var c=DASH.clientes.find(function(x){return x.id==id;});return c?c.nombre:'—';}
@@ -384,12 +384,13 @@ function rangoSemana(){
 }
 
 async function loadDash(){
-  var tasks=[ db.collection('obras').get(), db.collection('clientes').get() ];
+  var tasks=[ db.collection('obras').get(), db.collection('clientes').get(), db.collection('obras_prod').get() ];
   if(isSocio()){ tasks.push(db.collection('presupuestos').get()); }
   var res=await Promise.all(tasks);
   DASH.obras=res[0].docs.map(function(d){return d.data();});
   DASH.clientes=res[1].docs.map(function(d){return d.data();});
-  DASH.presupuestos=(isSocio()&&res[2])?res[2].docs.map(function(d){return d.data();}):[];
+  DASH.prod={}; res[2].docs.forEach(function(d){DASH.prod[d.id]=d.data();});
+  DASH.presupuestos=(isSocio()&&res[3])?res[3].docs.map(function(d){return d.data();}):[];
   DASH.loaded=true;
 }
 
@@ -458,13 +459,14 @@ function renderInicioSocio(c){
   html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:16px">'+
     kpi('Obras activas',activas.length,'var(--volt-deep)')+
     kpi('Finalizadas',finalizadas.length,'var(--ink-soft)')+
-    kpi('Pendientes de confirmar',obrasPend.length+pend.length,'var(--amber)')+
+    kpi('Pendientes de confirmar',obrasPend.length,'var(--amber)')+
   '</div>';
   html+=listaObrasCard('Obras activas',activas,'No hay obras activas.',false);
-  if(obrasPend.length) html+=listaObrasCard('Obras pendientes de confirmar',obrasPend,'',false);
-  html+=listaPresuCard(pend);
+  if(obrasPend.length) html+=listaObrasCard('Obras pendientes de confirmar',obrasPend,'No hay obras pendientes de confirmar.',false);
   html+=listaObrasCard('Finalizadas',finalizadas,'Todavía no hay obras finalizadas.',true);
-  html+=semanaBlock('Acá vas a ver la agenda del equipo cuando activemos la programación de obra (próxima etapa).');
+  var _sem=colectarAsignaciones(null);
+  var _semc=_sem.length?_sem.map(function(t){return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line)"><div style="flex:1;min-width:0"><div style="font-weight:600;font-size:14px">'+esc(t.etapa)+' · '+esc(t.ambiente)+'</div><div style="font-size:12px;color:var(--ink-faint)">'+esc(t.obra)+' · '+esc(userNombre(t.uid))+'</div></div><div style="font-size:12px;color:var(--volt-deep);font-weight:600;white-space:nowrap">'+fmtFechaCorta(t.fecha)+'</div></div>';}).join(''):'<div style="color:var(--ink-soft);font-size:13.5px">No hay trabajo programado para esta semana todavía.</div>';
+  html+=semanaBlock(_semc);
   html+='<div class="card"><div class="card-h">Accesos rápidos</div><div style="display:flex;gap:10px;flex-wrap:wrap">'+
     '<button class="btn primary" onclick="go(\'presupuestador\')">Nuevo presupuesto</button>'+
     '<button class="btn" onclick="go(\'obras\')">Ver obras</button>'+
@@ -476,7 +478,9 @@ function renderInicioColab(c){
   var activas=DASH.obras.filter(obraActiva);
   var html='<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="btn ghost sm" onclick="refreshDash()">\u21bb Actualizar</button></div>';
 
-  html+=semanaBlock('Todavía no hay tareas asignadas. Cuando activemos la agenda, acá te van a aparecer las tuyas, ordenadas por día.');
+  var _mias=colectarAsignaciones(CURRENT_USER.id);
+  var _cont=_mias.length?_mias.map(function(t){return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line)"><div style="flex:1;min-width:0"><div style="font-weight:600;font-size:14px">'+esc(t.etapa)+' · '+esc(t.ambiente)+'</div><div style="font-size:12px;color:var(--ink-faint)">'+esc(t.obra)+'</div></div><div style="font-size:12px;color:var(--volt-deep);font-weight:600;white-space:nowrap">'+fmtFechaCorta(t.fecha)+'</div></div>';}).join(''):'<div style="color:var(--ink-soft);font-size:13.5px">No tenés tareas asignadas para esta semana.</div>';
+  html+=semanaBlock(_cont);
   html+='<div class="card" style="padding:0;overflow:hidden">'+
     '<div class="card-h" style="padding:16px 18px 0">Obras activas</div>';
   if(activas.length){
@@ -547,6 +551,16 @@ function saveProd(oid){var p=getProd(oid);db.collection('obras_prod').doc(String
 function chkBox(on){return '<span style="width:20px;height:20px;flex-shrink:0;border:2px solid '+(on?'var(--volt)':'var(--line)')+';background:'+(on?'var(--volt)':'transparent')+';border-radius:6px;display:inline-grid;place-items:center">'+(on?'<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="var(--volt-ink)" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>':'')+'</span>';}
 function estadoPill(e){var map={pendiente:['Pendiente de confirmar','#fff6e5','#b0760c'],activa:['Activa','#e2faef','#0a7d43'],finalizada:['Finalizada','#eef1f5','#5A657C'],suspendida:['Cancelada','#fdecec','#c0392b']};var m=map[(e||'activa').toLowerCase()]||[e,'#eef1f5','#5A657C'];return '<span style="flex-shrink:0;padding:3px 10px;border-radius:99px;font-size:11px;font-weight:600;background:'+m[1]+';color:'+m[2]+'">'+esc(m[0])+'</span>';}
 
+function userNombre(uid){var u=(typeof USUARIOS!=='undefined'?USUARIOS:[]).find(function(x){return x.id===uid;});return u?u.nombre:'—';}
+function fmtFechaCorta(f){if(!f)return '';var p=f.split('-');var m=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];return p[2]+' '+m[(+p[1]-1)];}
+function etapaNombre(k){var e=ETAPAS_AMB.find(function(x){return x.key===k;});return e?e.nombre:k;}
+function dashObraNombre(oid){var o=(DASH.obras||[]).find(function(x){return x.id==oid;});return o?o.nombre:'(obra)';}
+function semanaRango2(){var d=new Date();var day=(d.getDay()+6)%7;var lun=new Date(d.getFullYear(),d.getMonth(),d.getDate());lun.setDate(lun.getDate()-day);var dom=new Date(lun);dom.setDate(lun.getDate()+6);return [lun,dom];}
+function enSemana(fstr){if(!fstr)return false;var p=fstr.split('-');var f=new Date(+p[0],+p[1]-1,+p[2]);var r=semanaRango2();return f>=r[0]&&f<=r[1];}
+function colectarAsignaciones(filtroUid){var out=[];var prod=DASH.prod||{};Object.keys(prod).forEach(function(oid){var pr=prod[oid];(pr.ambientes||[]).forEach(function(a){var asg=a.asign||{};Object.keys(asg).forEach(function(ek){var x=asg[ek];if(!x||!x.fecha)return;if(filtroUid&&x.uid!==filtroUid)return;if(!enSemana(x.fecha))return;out.push({obraId:oid,obra:dashObraNombre(oid),ambiente:a.nombre,etapa:etapaNombre(ek),fecha:x.fecha,uid:x.uid});});});});out.sort(function(a,b){return (a.fecha||'').localeCompare(b.fecha||'');});return out;}
+function asignarEtapa(oid,aid,ek){var p=getProd(oid);var a=p.ambientes.find(function(x){return x.id===aid;});if(!a)return;var cur=(a.asign&&a.asign[ek])||{};var opts='<option value="">— Nadie —</option>'+(USUARIOS||[]).slice().sort(function(x,y){return (x.nombre||'').localeCompare(y.nombre||'');}).map(function(u){return '<option value="'+u.id+'" '+(cur.uid===u.id?'selected':'')+'>'+esc(u.nombre)+(u.rol==='socio'?' (admin)':'')+'</option>';}).join('');modal('<div class="modal-head"><h2>Asignar · '+esc(etapaNombre(ek))+'</h2><button class="btn-ico" onclick="closeModal()">'+ICO.x+'</button></div><div class="modal-body"><div style="font-size:13px;color:var(--ink-soft);margin-bottom:14px">'+esc(a.nombre)+'</div><div class="field"><label>Responsable</label><select id="asg-user">'+opts+'</select></div><div class="field"><label>Fecha</label><input type="date" id="asg-fecha" value="'+(cur.fecha||'')+'"></div></div><div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" onclick="saveAsignEtapa(\''+oid+'\',\''+aid+'\',\''+ek+'\')">Guardar</button></div>');}
+function saveAsignEtapa(oid,aid,ek){var p=getProd(oid);var a=p.ambientes.find(function(x){return x.id===aid;});if(!a)return;a.asign=a.asign||{};var u2=document.getElementById('asg-user').value,fecha=document.getElementById('asg-fecha').value;if(!u2&&!fecha){delete a.asign[ek];}else{a.asign[ek]={uid:u2,fecha:fecha};}saveProd(oid);closeModal();renderObras();}
+
 function renderObras(){ if(openObraId)renderObraDetail(); else renderObrasList(); }
 
 function setObrasFilter(f){ obrasFilter=f; renderObrasList(); }
@@ -558,14 +572,18 @@ function renderObrasList(){
   var activas=OB.obras.filter(function(o){return _cat(o)==='activas';});
   var pend=OB.obras.filter(function(o){return _cat(o)==='pendiente';});
   var archivo=OB.obras.filter(function(o){return _cat(o)==='archivo';});
-  var lista= obrasFilter==='archivo'?archivo:(obrasFilter==='pendiente'?pend:activas);
-  var html='<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">'+
-    '<button class="btn sm '+(obrasFilter==='activas'?'primary':'')+'" onclick="setObrasFilter(\'activas\')">Activas · '+activas.length+'</button>'+
-    '<button class="btn sm '+(obrasFilter==='pendiente'?'primary':'')+'" onclick="setObrasFilter(\'pendiente\')">Pendientes · '+pend.length+'</button>'+
-    '<button class="btn sm '+(obrasFilter==='archivo'?'primary':'')+'" onclick="setObrasFilter(\'archivo\')">Archivadas · '+archivo.length+'</button>'+
-    (soc?'<button class="btn primary sm" style="margin-left:auto" onclick="obraForm()">'+ICO.plus+' Nueva obra</button>':'')+
-  '</div>';
-  var _em= obrasFilter==='archivo'?'No hay obras finalizadas ni canceladas.':(obrasFilter==='pendiente'?'No hay obras pendientes de confirmar.':('No hay obras activas'+(soc?'. Creá la primera 👆':'.')));
+  if(!soc) obrasFilter='activas';
+  var lista= !soc ? activas : (obrasFilter==='archivo'?archivo:(obrasFilter==='pendiente'?pend:activas));
+  var html='';
+  if(soc){
+    html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">'+
+      '<button class="btn sm '+(obrasFilter==='activas'?'primary':'')+'" onclick="setObrasFilter(\'activas\')">Activas · '+activas.length+'</button>'+
+      '<button class="btn sm '+(obrasFilter==='pendiente'?'primary':'')+'" onclick="setObrasFilter(\'pendiente\')">Pendientes · '+pend.length+'</button>'+
+      '<button class="btn sm '+(obrasFilter==='archivo'?'primary':'')+'" onclick="setObrasFilter(\'archivo\')">Archivadas · '+archivo.length+'</button>'+
+      '<button class="btn primary sm" style="margin-left:auto" onclick="obraForm()">'+ICO.plus+' Nueva obra</button>'+
+    '</div>';
+  }
+  var _em= (soc&&obrasFilter==='archivo')?'No hay obras finalizadas ni canceladas.':((soc&&obrasFilter==='pendiente')?'No hay obras pendientes de confirmar.':'No hay obras activas.');
   if(!lista.length){ html+='<div class="empty">'+_em+'</div>'; c.innerHTML=html; return; }
   var byCli={}; lista.forEach(function(o){var k=o.clienteId||'_';(byCli[k]=byCli[k]||[]).push(o);});
   Object.keys(byCli).sort(function(a,b){return obClienteNombre(a).localeCompare(obClienteNombre(b));}).forEach(function(k){
@@ -618,7 +636,10 @@ function ambienteCardHub(oid,a,soc){
   var checklist=ETAPAS_AMB.map(function(e){
     var tareas=e.tareas.filter(function(tk){return !(tk.cond==='esp'&&!(ambEsp(a)>0));});
     if(!tareas.length)return '';
-    return '<div style="margin:10px 0 2px;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint)">'+e.nombre+'</div>'+
+    var _asg=(a.asign&&a.asign[e.key])||{};
+    var _chip=_asg.uid?('<span style="font-size:11px;color:var(--volt-deep);font-weight:600">'+esc(userNombre(_asg.uid))+(_asg.fecha?(' · '+fmtFechaCorta(_asg.fecha)):'')+'</span>'):'<span style="font-size:11px;color:var(--ink-faint)">sin asignar</span>';
+    var _abtn=soc?'<button class="btn sm" style="padding:2px 8px;font-size:11px" onclick="asignarEtapa(\''+oid+'\',\''+a.id+'\',\''+e.key+'\')">'+(_asg.uid?'Cambiar':'Asignar')+'</button>':'';
+    return '<div style="display:flex;align-items:center;gap:8px;margin:12px 0 2px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-faint);flex:1">'+e.nombre+'</div>'+_chip+_abtn+'</div>'+
       tareas.map(function(tk){var on=!!a.tareas[tk.k];return '<div style="display:flex;align-items:center;gap:10px;padding:4px 0;cursor:pointer" onclick="toggleTareaAmb(\''+oid+'\',\''+a.id+'\',\''+tk.k+'\')">'+chkBox(on)+'<span style="font-size:13px;'+(on?'color:var(--ink-faint);text-decoration:line-through':'')+'">'+tk.t+'</span></div>';}).join('');
   }).join('');
   var _tipos=obraTipos(getProd(oid));
