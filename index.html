@@ -498,6 +498,7 @@ function renderInicioColab(c){
 var openObraId=null;
 var OB={obras:[],clientes:[],prod:{},listening:false};
 var OPEN_CHK={};
+var obrasFilter='activas';
 var AMBIENTES_PRESET=['Ingreso','Toilette','Cochera','Cocina','Living/Sala de estar','Dormitorio','Dormitorio suite','Baño suite','Baño','Lavadero','Patio','Asador','Terraza'];
 var ETAPAS_AMB=[
   {key:'canalizacion',nombre:'Canalización',tareas:[
@@ -537,17 +538,25 @@ function obClienteNombre(id){var c=OB.clientes.find(function(x){return x.id==id;
 function getProd(oid){ if(!OB.prod[oid])OB.prod[oid]={ambientes:[],tareasObra:{}}; if(!OB.prod[oid].ambientes)OB.prod[oid].ambientes=[]; if(!OB.prod[oid].tareasObra)OB.prod[oid].tareasObra={}; return OB.prod[oid]; }
 function saveProd(oid){var p=getProd(oid);db.collection('obras_prod').doc(String(oid)).set({ambientes:p.ambientes,tareasObra:p.tareasObra}).catch(function(e){toast('Error al guardar: '+e.message);});}
 function chkBox(on){return '<span style="width:20px;height:20px;flex-shrink:0;border:2px solid '+(on?'var(--volt)':'var(--line)')+';background:'+(on?'var(--volt)':'transparent')+';border-radius:6px;display:inline-grid;place-items:center">'+(on?'<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="var(--volt-ink)" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>':'')+'</span>';}
-function estadoPill(e){var map={activa:['Activa','#e2faef','#0a7d43'],finalizada:['Finalizada','#eef1f5','#5A657C'],suspendida:['Suspendida','#fff2e0','#b06a0c']};var m=map[(e||'activa').toLowerCase()]||[e,'#eef1f5','#5A657C'];return '<span style="flex-shrink:0;padding:3px 10px;border-radius:99px;font-size:11px;font-weight:600;background:'+m[1]+';color:'+m[2]+'">'+esc(m[0])+'</span>';}
+function estadoPill(e){var map={activa:['Activa','#e2faef','#0a7d43'],finalizada:['Finalizada','#eef1f5','#5A657C'],suspendida:['Cancelada','#fdecec','#c0392b']};var m=map[(e||'activa').toLowerCase()]||[e,'#eef1f5','#5A657C'];return '<span style="flex-shrink:0;padding:3px 10px;border-radius:99px;font-size:11px;font-weight:600;background:'+m[1]+';color:'+m[2]+'">'+esc(m[0])+'</span>';}
 
 function renderObras(){ if(openObraId)renderObraDetail(); else renderObrasList(); }
 
+function setObrasFilter(f){ obrasFilter=f; renderObrasList(); }
 function renderObrasList(){
   $('#view-title').textContent='Obras';
   $('#view-desc').textContent=MODULOS.obras.desc;
-  var soc=isSocio(), c=$('#content'), obras=OB.obras, html='';
-  if(soc)html+='<div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn primary" onclick="obraForm()">'+ICO.plus+' Nueva obra</button></div>';
-  if(!obras.length){ html+='<div class="empty">No hay obras cargadas'+(soc?'. Creá la primera 👆':'.')+'</div>'; c.innerHTML=html; return; }
-  var byCli={}; obras.forEach(function(o){var k=o.clienteId||'_';(byCli[k]=byCli[k]||[]).push(o);});
+  var soc=isSocio(), c=$('#content');
+  var activas=OB.obras.filter(function(o){var e=(o.estado||'activa').toLowerCase();return e!=='finalizada'&&e!=='suspendida';});
+  var archivo=OB.obras.filter(function(o){var e=(o.estado||'').toLowerCase();return e==='finalizada'||e==='suspendida';});
+  var lista= obrasFilter==='archivo'?archivo:activas;
+  var html='<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap">'+
+    '<button class="btn sm '+(obrasFilter==='activas'?'primary':'')+'" onclick="setObrasFilter(\'activas\')">Activas · '+activas.length+'</button>'+
+    '<button class="btn sm '+(obrasFilter==='archivo'?'primary':'')+'" onclick="setObrasFilter(\'archivo\')">Archivadas · '+archivo.length+'</button>'+
+    (soc&&obrasFilter==='activas'?'<button class="btn primary sm" style="margin-left:auto" onclick="obraForm()">'+ICO.plus+' Nueva obra</button>':'')+
+  '</div>';
+  if(!lista.length){ html+='<div class="empty">'+(obrasFilter==='archivo'?'No hay obras finalizadas ni canceladas.':('No hay obras activas'+(soc?'. Creá la primera 👆':'.')))+'</div>'; c.innerHTML=html; return; }
+  var byCli={}; lista.forEach(function(o){var k=o.clienteId||'_';(byCli[k]=byCli[k]||[]).push(o);});
   Object.keys(byCli).sort(function(a,b){return obClienteNombre(a).localeCompare(obClienteNombre(b));}).forEach(function(k){
     var nombre=k==='_'?'Sin cliente':obClienteNombre(k);
     html+='<div style="margin-bottom:22px"><div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><div class="avatar" style="width:28px;height:28px;background:var(--bg);color:var(--volt-deep);font-size:11px">'+initials(nombre)+'</div><div style="font-weight:600">'+esc(nombre)+'</div></div>';
@@ -555,7 +564,6 @@ function renderObrasList(){
   });
   c.innerHTML=html;
 }
-
 function obraListCard(o){
   var p=OB.prod[o.id]||{ambientes:[]}; var amb=p.ambientes||[]; var nAmb=amb.length;
   var prog=nAmb?Math.round(amb.reduce(function(a,x){return a+ambProgreso(x);},0)/nAmb):0;
@@ -634,7 +642,7 @@ function obraForm(id){
     '<div class="modal-body">'+
     '<div class="field"><label>Nombre de la obra</label><input id="o-nombre" value="'+(o?esc(o.nombre):'')+'" placeholder="Ej: Casa García - Barrio Norte"></div>'+
     '<div class="field"><label>Cliente</label><div style="display:flex;gap:8px"><select id="o-cli" style="flex:1">'+cliOpts+'</select><button class="btn sm" onclick="quickCliente(\''+(id||'')+'\')">'+ICO.plus+'</button></div></div>'+
-    '<div class="grid2"><div class="field"><label>Estado</label><select id="o-estado"><option value="activa"'+(o&&(o.estado||'').toLowerCase()==='activa'?' selected':'')+'>Activa</option><option value="finalizada"'+(o&&(o.estado||'').toLowerCase()==='finalizada'?' selected':'')+'>Finalizada</option><option value="suspendida"'+(o&&(o.estado||'').toLowerCase()==='suspendida'?' selected':'')+'>Suspendida</option></select></div>'+
+    '<div class="grid2"><div class="field"><label>Estado</label><select id="o-estado"><option value="activa"'+(o&&(o.estado||'').toLowerCase()==='activa'?' selected':'')+'>Activa</option><option value="finalizada"'+(o&&(o.estado||'').toLowerCase()==='finalizada'?' selected':'')+'>Finalizada</option><option value="suspendida"'+(o&&(o.estado||'').toLowerCase()==='suspendida'?' selected':'')+'>Cancelada</option></select></div>'+
     '<div class="field"><label>Valor de la obra ($)</label><input id="o-valor" type="number" min="0" value="'+(o&&o.valor?o.valor:'')+'" placeholder="0"></div></div>'+
     '<div class="field"><label>Notas</label><input id="o-notas" value="'+(o?esc(o.notas||''):'')+'" placeholder="Detalles..."></div>'+
     '</div><div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" onclick="saveObra(\''+(id||'')+'\')">'+(o?'Guardar':'Crear obra')+'</button></div>');
