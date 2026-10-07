@@ -97,6 +97,7 @@
   .pill{display:inline-block;padding:3px 10px;border-radius:99px;font-size:11px;font-weight:600}
   .pill.socio{background:#e2faef;color:#0a7d43}
   .pill.colaborador{background:#e6eef7;color:#2660b8}
+  .pill.ninguno{background:#eef1f5;color:#8A94A8}
   .empty{text-align:center;color:var(--ink-faint);font-size:13.5px;padding:34px 10px}
 
   .overlay{position:fixed;inset:0;background:rgba(10,15,25,.45);display:none;align-items:center;justify-content:center;padding:20px;z-index:60}
@@ -254,10 +255,10 @@ var ICO={
 var MODULOS={
   inicio:{label:'Inicio',ico:'home',title:'',desc:'',roles:['socio','colaborador']},
   obras:{label:'Obras',ico:'obras',title:'Obras',desc:'Obras en curso, ambientes y producción',roles:['socio','colaborador']},
-  clientes:{label:'Clientes',ico:'clientes',title:'Clientes',desc:'Clientes y su información',roles:['socio']},
   presupuestador:{label:'Presupuestador',ico:'presu',title:'Presupuestador',desc:'Generá presupuestos de mano de obra',roles:['socio']},
-  usuarios:{label:'Usuarios',ico:'users',title:'Usuarios',desc:'Altas y permisos del equipo',roles:['socio']}
+  empleados:{label:'Empleados',ico:'users',title:'Empleados',desc:'Tu equipo: oficios, colores y accesos',roles:['socio']}
 };
+var EMP_COLORS=['#3B82F6','#12C2A0','#8B5CF6','#F59E0B','#EC4899','#0EA5E9','#EF4444','#14B8A6','#6366F1','#F97316'];
 function allowedModules(){ return Object.keys(MODULOS).filter(function(k){return MODULOS[k].roles.indexOf(CURRENT_USER.rol)>=0;}); }
 function isSocio(){ return CURRENT_USER && CURRENT_USER.rol==='socio'; }
 
@@ -290,7 +291,7 @@ async function doBootstrap(){
   var name=$('#bt-name').value.trim(), user=normUser($('#bt-user').value), pass=$('#bt-pass').value;
   var err=$('#bt-err'); err.textContent='';
   if(!name||!user||!pass){ err.textContent='Completá todos los campos.'; return; }
-  var u={id:user,usuario:user,nombre:name,claveHash:await sha256(pass),rol:'socio',creado:new Date().toISOString()};
+  var u={id:user,usuario:user,nombre:name,claveHash:await sha256(pass),rol:'socio',oficio:'',color:EMP_COLORS[0],creado:new Date().toISOString()};
   try{ await db.collection('usuarios').doc(user).set(u); USUARIOS.push(u); enterApp(u); }
   catch(e){ err.textContent='No se pudo crear: '+e.message; }
 }
@@ -328,7 +329,7 @@ function enterApp(u){
   // escuchar cambios de usuarios en vivo (para permisos)
   db.collection('usuarios').onSnapshot(function(snap){
     USUARIOS=snap.docs.map(function(d){return d.data();});
-    if(currentView==='usuarios') renderUsuarios();
+    if(currentView==='empleados') renderEmpleados();
     var me=USUARIOS.find(function(x){return x.id===CURRENT_USER.id;});
     if(!me){ logout(); } // me borraron el usuario
   });
@@ -354,7 +355,7 @@ function go(mod){
   if(mod==='inicio') renderInicio();
   else if(mod==='obras'){ openObraId=null; setupObras(); renderObras(); }
   else if(mod==='presupuestador') renderPresupuestador();
-  else if(mod==='usuarios') renderUsuarios();
+  else if(mod==='empleados') renderEmpleados();
   else renderSoon(mod);
 }
 
@@ -470,7 +471,6 @@ function renderInicioSocio(c){
   html+='<div class="card"><div class="card-h">Accesos rápidos</div><div style="display:flex;gap:10px;flex-wrap:wrap">'+
     '<button class="btn primary" onclick="go(\'presupuestador\')">Nuevo presupuesto</button>'+
     '<button class="btn" onclick="go(\'obras\')">Ver obras</button>'+
-    '<button class="btn" onclick="go(\'clientes\')">Ver clientes</button>'+
   '</div></div>';
   c.innerHTML=html;
 }
@@ -722,75 +722,85 @@ function renderSoon(mod){
 /* ============================================================
    MÓDULO USUARIOS (solo socio)
    ============================================================ */
-function renderUsuarios(){
+function renderEmpleados(){
   if(!isSocio()){ $('#content').innerHTML='<div class="empty">Solo disponible para administradores.</div>'; return; }
   var rows=USUARIOS.slice().sort(function(a,b){return (a.nombre||'').localeCompare(b.nombre||'');}).map(function(u){
-    var esYo=u.id===CURRENT_USER.id;
+    var esYo=u.id===CURRENT_USER.id; var col=u.color||'#8A94A8';
+    var accLabel=u.rol==='socio'?'Administrador':(u.rol==='colaborador'?'Colaborador':'Sin acceso');
+    var accPill=u.rol==='socio'?'socio':(u.rol==='colaborador'?'colaborador':'ninguno');
     return '<tr>'+
-      '<td><div style="display:flex;align-items:center;gap:10px"><div class="avatar" style="width:30px;height:30px;font-size:11px;background:var(--bg);color:var(--volt-deep)">'+initials(u.nombre)+'</div><div><div style="font-weight:600">'+esc(u.nombre)+(esYo?' <span style="color:var(--ink-faint);font-weight:400">(vos)</span>':'')+'</div></div></div></td>'+
-      '<td style="font-family:monospace;color:var(--ink-soft)">'+esc(u.usuario)+'</td>'+
-      '<td><span class="pill '+u.rol+'">'+(u.rol==='socio'?'Administrador':'Colaborador')+'</span></td>'+
-      '<td style="text-align:right;white-space:nowrap">'+
-        '<button class="btn-ico" onclick="userForm(\''+u.id+'\')" title="Editar">'+ICO.edit+'</button>'+
-        (esYo?'':'<button class="btn-ico danger" onclick="delUser(\''+u.id+'\')" title="Quitar">'+ICO.trash+'</button>')+
-      '</td></tr>';
+      '<td><div style="display:flex;align-items:center;gap:10px"><div class="avatar" style="width:30px;height:30px;font-size:11px;background:'+col+'22;color:'+col+'">'+initials(u.nombre)+'</div><div style="font-weight:600">'+esc(u.nombre)+(esYo?' <span style="color:var(--ink-faint);font-weight:400">(vos)</span>':'')+'</div></div></td>'+
+      '<td style="color:var(--ink-soft)">'+esc(u.oficio||'—')+'</td>'+
+      '<td><span class="pill '+accPill+'">'+accLabel+'</span></td>'+
+      '<td><span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:'+col+';vertical-align:middle"></span></td>'+
+      '<td style="text-align:right;white-space:nowrap"><button class="btn-ico" onclick="empleadoForm(\''+u.id+'\')" title="Editar">'+ICO.edit+'</button>'+(esYo?'':'<button class="btn-ico danger" onclick="delEmpleado(\''+u.id+'\')" title="Quitar">'+ICO.trash+'</button>')+'</td></tr>';
   }).join('');
   $('#content').innerHTML=
     '<div class="card" style="padding:0;overflow:hidden">'+
-      '<div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--line)">'+
-        '<div class="card-h" style="margin:0">Equipo · '+USUARIOS.length+' usuario(s)</div>'+
-        '<button class="btn primary sm" onclick="userForm()">'+ICO.plus+' Nuevo usuario</button>'+
-      '</div>'+
-      '<div style="overflow-x:auto"><table><thead><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th></th></tr></thead>'+
-      '<tbody>'+(rows||'<tr><td colspan="4" class="empty">Sin usuarios</td></tr>')+'</tbody></table></div>'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--line)"><div class="card-h" style="margin:0">Equipo · '+USUARIOS.length+'</div><button class="btn primary sm" onclick="empleadoForm()">'+ICO.plus+' Nuevo empleado</button></div>'+
+      '<div style="overflow-x:auto"><table><thead><tr><th>Nombre</th><th>Oficio</th><th>Acceso</th><th>Color</th><th></th></tr></thead><tbody>'+(rows||'<tr><td colspan="5" class="empty">Sin empleados</td></tr>')+'</tbody></table></div>'+
     '</div>'+
-    '<div style="font-size:12px;color:var(--ink-faint);padding:4px 4px">El Administrador ve y edita todo (incluida la plata). El Colaborador ve Obras y sus checklists, sin acceso a montos.</div>';
+    '<div style="font-size:12px;color:var(--ink-faint);padding:4px 4px">El acceso define qué puede hacer: Administrador ve todo, Colaborador ve Obras y sus tareas (sin plata), Sin acceso no entra (solo para asignarle trabajo).</div>';
 }
-
-function userForm(id){
+function _pickColor(btn,c){ document.getElementById('f-color').value=c; var p=btn.parentNode; p.querySelectorAll('button').forEach(function(b){b.style.borderColor='transparent';}); btn.style.borderColor='var(--ink)'; }
+function _toggleLogin(){ var acc=document.getElementById('f-acc').value; document.getElementById('login-fields').style.display=(acc==='ninguno'?'none':''); }
+function empleadoForm(id){
   var u=id?USUARIOS.find(function(x){return x.id===id;}):null;
+  var curAcc=u?(u.rol||'colaborador'):'colaborador';
+  var defColor=(u&&u.color)||EMP_COLORS[USUARIOS.length%EMP_COLORS.length];
+  var swatches=EMP_COLORS.map(function(c){var sel=(c===defColor);return '<button type="button" onclick="_pickColor(this,\''+c+'\')" style="width:26px;height:26px;border-radius:50%;background:'+c+';border:3px solid '+(sel?'var(--ink)':'transparent')+';cursor:pointer"></button>';}).join('');
   modal(
-    '<div class="modal-head"><h2>'+(u?'Editar usuario':'Nuevo usuario')+'</h2><button class="btn-ico" onclick="closeModal()">'+ICO.x+'</button></div>'+
+    '<div class="modal-head"><h2>'+(u?'Editar empleado':'Nuevo empleado')+'</h2><button class="btn-ico" onclick="closeModal()">'+ICO.x+'</button></div>'+
     '<div class="modal-body">'+
       '<div class="field"><label>Nombre y apellido</label><input id="f-name" value="'+(u?esc(u.nombre):'')+'" placeholder="Ej: Lucas Vera"></div>'+
-      '<div class="field"><label>Usuario (para entrar)</label><input id="f-user" value="'+(u?esc(u.usuario):'')+'" placeholder="ej: lucas" '+(u?'disabled style="opacity:.6"':'')+'></div>'+
       '<div class="grid2">'+
-        '<div class="field"><label>Rol</label><select id="f-rol"><option value="colaborador"'+(u&&u.rol==='colaborador'?' selected':'')+'>Colaborador</option><option value="socio"'+(u&&u.rol==='socio'?' selected':'')+'>Administrador</option></select></div>'+
-        '<div class="field"><label>'+(u?'Nueva contraseña (opcional)':'Contraseña')+'</label><input id="f-pass" type="password" placeholder="'+(u?'dejar vacío para no cambiar':'contraseña')+'"></div>'+
+        '<div class="field"><label>Oficio</label><input id="f-oficio" list="oficios-dl" value="'+(u?esc(u.oficio||''):'')+'" placeholder="Ej: Electricista"></div>'+
+        '<div class="field"><label>Acceso a la app</label><select id="f-acc" onchange="_toggleLogin()"><option value="ninguno"'+(curAcc==='ninguno'?' selected':'')+'>Sin acceso</option><option value="colaborador"'+(curAcc==='colaborador'?' selected':'')+'>Colaborador</option><option value="socio"'+(curAcc==='socio'?' selected':'')+'>Administrador</option></select></div>'+
       '</div>'+
+      '<datalist id="oficios-dl"><option value="Electricista matriculado"><option value="Oficial electricista"><option value="Medio oficial"><option value="Ayudante"><option value="Encargado de obra"><option value="Administración"></datalist>'+
+      '<div class="field"><label>Color (para el calendario)</label><input type="hidden" id="f-color" value="'+defColor+'"><div style="display:flex;gap:8px;flex-wrap:wrap">'+swatches+'</div></div>'+
+      '<div id="login-fields" style="'+(curAcc==='ninguno'?'display:none':'')+'"><div class="grid2">'+
+        '<div class="field"><label>Usuario (para entrar)</label><input id="f-user" value="'+(u?esc(u.usuario||''):'')+'" placeholder="ej: lucas" '+((u&&u.usuario)?'disabled style="opacity:.6"':'')+'></div>'+
+        '<div class="field"><label>'+(u?'Nueva contraseña':'Contraseña')+'</label><input id="f-pass" type="password" placeholder="'+(u?'dejar vacío para no cambiar':'contraseña')+'"></div>'+
+      '</div></div>'+
     '</div>'+
-    '<div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Cancelar</button>'+
-      '<button class="btn primary" onclick="saveUser(\''+(id||'')+'\')">'+(u?'Guardar':'Crear usuario')+'</button></div>'
+    '<div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" onclick="saveEmpleado(\''+(id||'')+'\')">'+(u?'Guardar':'Crear empleado')+'</button></div>'
   );
   setTimeout(function(){ var el=$('#f-name'); if(el) el.focus(); },50);
 }
-
-async function saveUser(id){
-  var name=$('#f-name').value.trim(), pass=$('#f-pass').value, rol=$('#f-rol').value;
+async function saveEmpleado(id){
+  var name=$('#f-name').value.trim(), oficio=$('#f-oficio').value.trim(), color=$('#f-color').value, acc=$('#f-acc').value;
+  var passEl=$('#f-pass'), pass=passEl?passEl.value:'';
+  var userEl=$('#f-user'), user=(acc!=='ninguno'&&userEl)?normUser(userEl.value):'';
+  if(!name){ alert('El nombre es obligatorio.'); return; }
   if(id){
-    var u=USUARIOS.find(function(x){return x.id===id;});
-    if(!name){ alert('El nombre es obligatorio.'); return; }
-    var upd={nombre:name,rol:rol};
-    if(pass) upd.claveHash=await sha256(pass);
-    try{ await db.collection('usuarios').doc(id).set(upd,{merge:true}); closeModal(); toast('Usuario actualizado'); }
-    catch(e){ alert('Error: '+e.message); }
+    var u=USUARIOS.find(function(x){return x.id===id;}); if(!u)return;
+    var upd={nombre:name,oficio:oficio,color:color,rol:acc};
+    if(acc==='ninguno'){ upd.usuario=''; upd.claveHash=''; }
+    else {
+      if(!u.usuario){ if(!user){alert('Poné un usuario para el acceso.');return;} if(USUARIOS.some(function(x){return x.id!==id && x.usuario===user;})){alert('Ese usuario ya existe.');return;} upd.usuario=user; if(!pass){alert('Poné una contraseña.');return;} }
+      if(pass) upd.claveHash=await sha256(pass);
+    }
+    try{ await db.collection('usuarios').doc(id).set(upd,{merge:true}); closeModal(); toast('Empleado actualizado'); }catch(e){ alert('Error: '+e.message); }
   } else {
-    var user=normUser($('#f-user').value);
-    if(!name||!user||!pass){ alert('Completá nombre, usuario y contraseña.'); return; }
-    if(USUARIOS.some(function(x){return x.usuario===user;})){ alert('Ya existe un usuario con ese nombre de acceso.'); return; }
-    var nu={id:user,usuario:user,nombre:name,claveHash:await sha256(pass),rol:rol,creado:new Date().toISOString()};
-    try{ await db.collection('usuarios').doc(user).set(nu); closeModal(); toast('Usuario creado'); }
-    catch(e){ alert('Error: '+e.message); }
+    var nid=uid();
+    var nu={id:nid,nombre:name,oficio:oficio,color:color,rol:acc,usuario:'',claveHash:'',creado:new Date().toISOString()};
+    if(acc!=='ninguno'){
+      if(!user){ alert('Poné un usuario.'); return; }
+      if(!pass){ alert('Poné una contraseña.'); return; }
+      if(USUARIOS.some(function(x){return x.usuario===user;})){ alert('Ya existe un usuario con ese nombre de acceso.'); return; }
+      nu.usuario=user; nu.claveHash=await sha256(pass);
+    }
+    try{ await db.collection('usuarios').doc(nid).set(nu); closeModal(); toast('Empleado creado'); }catch(e){ alert('Error: '+e.message); }
   }
 }
-
-function delUser(id){
+function delEmpleado(id){
   var u=USUARIOS.find(function(x){return x.id===id;}); if(!u)return;
   if(u.id===CURRENT_USER.id){ alert('No podés eliminar tu propio usuario.'); return; }
   var socios=USUARIOS.filter(function(x){return x.rol==='socio';});
   if(u.rol==='socio' && socios.length<=1){ alert('No podés eliminar al único administrador.'); return; }
-  if(!confirm('¿Quitar a '+u.nombre+'? No va a poder ingresar más.'))return;
-  db.collection('usuarios').doc(id).delete().then(function(){toast('Usuario eliminado');}).catch(function(e){alert('Error: '+e.message);});
+  if(!confirm('¿Quitar a '+u.nombre+'?'))return;
+  db.collection('usuarios').doc(id).delete().then(function(){toast('Empleado eliminado');}).catch(function(e){alert('Error: '+e.message);});
 }
 </script>
 </body>
