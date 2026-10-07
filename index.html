@@ -1022,6 +1022,58 @@ function saveAsignTarea(oid,aid,ek,tk){
 function calWeek(delta){CAL_OFF+=delta;renderCalendario();}
 function calToday(){CAL_OFF=0;renderCalendario();}
 function irAObra(id){ if((!OB.obras||!OB.obras.length)&&DASH.obras&&DASH.obras.length){OB.obras=DASH.obras.slice();OB.clientes=DASH.clientes.slice();OB.prod=Object.assign({},DASH.prod);} go('obras'); openObraId=id; renderObras(); window.scrollTo(0,0); }
+
+/* ---- Mensaje para WhatsApp (tareas por empleado) ---- */
+var WA_MODE='semana';
+function diaCorto(iso){var p=iso.split('-');var d=new Date(+p[0],+p[1]-1,+p[2]);var dn=['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];return dn[d.getDay()]+' '+d.getDate();}
+function fmtFechaLarga(iso){if(!iso)return '';var p=iso.split('-');var d=new Date(+p[0],+p[1]-1,+p[2]);var dias=['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];var mes=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];return dias[d.getDay()]+' '+d.getDate()+' de '+mes[d.getMonth()];}
+function waBuild(mode,isoDay){
+  var tareas, header, intro;
+  if(mode==='dia'){
+    tareas=TAREAS.filter(function(t){return t.fecha===isoDay;});
+    var esHoy=(isoDay===isoDate(new Date()));
+    header='☀️⚡ *¡Tareas de '+(esHoy?'hoy':'la jornada')+'!*\n📅 '+fmtFechaLarga(isoDay);
+    intro='\n\n¡Buen día, equipo! 👋 Esto es lo que tenemos:';
+  } else {
+    var days=weekDays(CAL_OFF); var set={}; days.forEach(function(d){set[isoDate(d)]=true;});
+    tareas=TAREAS.filter(function(t){return set[t.fecha];});
+    header='🗓️⚡ *¡Tareas de la semana!*\n📅 '+fmtRango(days[0],days[5]);
+    intro='\n\n¡Buenas, equipo! 👋 Así arrancamos la semana:';
+  }
+  var byEmp={}; tareas.forEach(function(t){(byEmp[t.empleadoId]=byEmp[t.empleadoId]||[]).push(t);});
+  var emps=(USUARIOS||[]).slice().sort(byNombre).filter(function(u){return byEmp[u.id]&&byEmp[u.id].length;});
+  if(!emps.length) return header+'\n\nPor ahora no hay tareas asignadas 🙌 ¡a disfrutar el descanso!\n\n⚡ _Grupo Voltum_';
+  var body=emps.map(function(u){
+    var list=byEmp[u.id].sort(function(a,b){return (a.fecha||'').localeCompare(b.fecha||'');}).map(function(t){
+      var pref=(mode==='dia')?'':('*'+diaCorto(t.fecha)+'* · ');
+      return '   ▸ '+pref+(t.descripcion||'')+' — '+obraNombreAny(t.obraId)+(t.ambiente?(' ('+t.ambiente+')'):'')+(t.hecha?' ✅':'');
+    }).join('\n');
+    return '👷 *'+u.nombre+'*\n'+list;
+  }).join('\n\n');
+  var cierres=['💪 ¡A darle con todo que se puede!','⚡ ¡Que sea un gran día de laburo!','🔝 ¡Vamos equipo, a romperla!','🙌 ¡Gracias por el aguante, éxitos!','🚀 ¡A meterle que salimos adelante!'];
+  var cierre=cierres[Math.floor(Math.random()*cierres.length)];
+  return header+intro+'\n\n'+body+'\n\n'+cierre+'\n⚡ _Grupo Voltum_';
+}
+function waMenu(){
+  var today=isoDate(new Date()); WA_MODE='semana';
+  modal('<div class="modal-head"><h2>Mensaje para WhatsApp</h2><button class="btn-ico" onclick="closeModal()">'+ICO.x+'</button></div>'+
+    '<div class="modal-body">'+
+      '<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center">'+
+        '<button id="wa-tab-sem" class="btn sm primary" onclick="waSet(\'semana\')">Esta semana</button>'+
+        '<button id="wa-tab-dia" class="btn sm" onclick="waSet(\'dia\')">Un día</button>'+
+        '<input type="date" id="wa-day" value="'+today+'" onchange="waRefresh()" style="display:none;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink)">'+
+      '</div>'+
+      '<textarea id="wa-text" style="width:100%;min-height:230px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font-size:13px;line-height:1.5;font-family:inherit;resize:vertical"></textarea>'+
+      '<div style="font-size:12px;color:var(--ink-faint);margin-top:6px">Podés editar el texto antes de enviarlo. Al abrir WhatsApp vas a elegir el grupo.</div>'+
+    '</div>'+
+    '<div class="modal-foot"><button class="btn ghost" onclick="waCopy()">Copiar</button><button class="btn primary" onclick="waSend()">Abrir WhatsApp</button></div>');
+  waRefresh();
+}
+function waSet(m){WA_MODE=m;var s=document.getElementById('wa-tab-sem'),d=document.getElementById('wa-tab-dia');s.classList.toggle('primary',m==='semana');d.classList.toggle('primary',m==='dia');document.getElementById('wa-day').style.display=(m==='dia'?'':'none');waRefresh();}
+function waRefresh(){var dayEl=document.getElementById('wa-day');document.getElementById('wa-text').value=waBuild(WA_MODE,dayEl?dayEl.value:'');}
+function waSend(){var txt=document.getElementById('wa-text').value;window.open('https://wa.me/?text='+encodeURIComponent(txt),'_blank');}
+function waCopy(){var txt=document.getElementById('wa-text').value;if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(function(){toast('Mensaje copiado');},function(){waCopyFallback();});}else{waCopyFallback();}}
+function waCopyFallback(){var ta=document.getElementById('wa-text');if(!ta)return;ta.focus();ta.select();try{document.execCommand('copy');toast('Mensaje copiado');}catch(e){toast('Copialo manualmente');}}
 function tareaChip(t,col){
   var done=!!t.hecha; var bg=col+(done?'14':'22');
   return '<div onclick="tareaMenu(\''+t.id+'\')" title="'+esc(t.descripcion||'')+'" style="cursor:pointer;background:'+bg+';border-left:3px solid '+col+';border-radius:6px;padding:5px 7px;line-height:1.25;'+(done?'opacity:.55':'')+'">'+
@@ -1038,7 +1090,8 @@ function renderCalendario(){
     '<button class="btn sm" onclick="calToday()">Hoy</button>'+
     '<button class="btn ghost sm" onclick="calWeek(1)">›</button>'+
     '<div style="font-weight:600;margin-left:6px">'+fmtRango(days[0],days[5])+'</div>'+
-    '<button class="btn primary sm" style="margin-left:auto" onclick="tareaModal({})">'+ICO.plus+' Nueva tarea</button>'+
+    '<button class="btn sm" style="margin-left:auto" onclick="waMenu()">📲 WhatsApp</button>'+
+    '<button class="btn primary sm" onclick="tareaModal({})">'+ICO.plus+' Nueva tarea</button>'+
   '</div>';
   var emps=(USUARIOS||[]).slice().sort(byNombre);
   var thead='<th style="position:sticky;left:0;background:var(--card);z-index:2;min-width:140px">Empleado</th>'+days.map(function(d,i){return '<th'+(isoDate(d)===hoy?' style="color:var(--volt-deep)"':'')+'>'+diasN[i]+' '+d.getDate()+'</th>';}).join('');
