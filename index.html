@@ -556,8 +556,8 @@ function setupObras(){
 }
 
 function obClienteNombre(id){var c=OB.clientes.find(function(x){return x.id==id;});return c?c.nombre:'—';}
-function getProd(oid){ if(!OB.prod[oid])OB.prod[oid]={ambientes:[],tareasObra:{}}; if(!OB.prod[oid].ambientes)OB.prod[oid].ambientes=[]; if(!OB.prod[oid].tareasObra)OB.prod[oid].tareasObra={}; return OB.prod[oid]; }
-function saveProd(oid){var p=getProd(oid);db.collection('obras_prod').doc(String(oid)).set({ambientes:p.ambientes,tareasObra:p.tareasObra},{merge:true}).catch(function(e){toast('Error al guardar: '+e.message);});}
+function getProd(oid){ if(!OB.prod[oid])OB.prod[oid]={ambientes:[],tareasObra:{}}; if(!OB.prod[oid].ambientes)OB.prod[oid].ambientes=[]; if(!OB.prod[oid].tareasObra)OB.prod[oid].tareasObra={}; if(!OB.prod[oid].planos)OB.prod[oid].planos=[]; if(!OB.prod[oid].pendientes)OB.prod[oid].pendientes=[]; return OB.prod[oid]; }
+function saveProd(oid){var p=getProd(oid);db.collection('obras_prod').doc(String(oid)).set({ambientes:p.ambientes,tareasObra:p.tareasObra,planos:p.planos,pendientes:p.pendientes},{merge:true}).catch(function(e){toast('Error al guardar: '+e.message);});}
 function chkBox(on){return '<span style="width:20px;height:20px;flex-shrink:0;border:2px solid '+(on?'var(--volt)':'var(--line)')+';background:'+(on?'var(--volt)':'transparent')+';border-radius:6px;display:inline-grid;place-items:center">'+(on?'<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="var(--volt-ink)" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>':'')+'</span>';}
 function estadoPill(e){var map={pendiente:['Pendiente de confirmar','#fff6e5','#b0760c'],activa:['Activa','#e2faef','#0a7d43'],finalizada:['Finalizada','#eef1f5','#5A657C'],suspendida:['Cancelada','#fdecec','#c0392b']};var m=map[(e||'activa').toLowerCase()]||[e,'#eef1f5','#5A657C'];return '<span style="flex-shrink:0;padding:3px 10px;border-radius:99px;font-size:11px;font-weight:600;background:'+m[1]+';color:'+m[2]+'">'+esc(m[0])+'</span>';}
 
@@ -629,6 +629,7 @@ function renderObraDetail(){
   html+='<div class="card"><div class="card-h">Total de bocas · suma de ambientes</div><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end">'+_cells+
     '<div style="margin-left:auto;text-align:right"><div style="font-size:24px;font-weight:800;font-family:\'Space Grotesk\';color:var(--volt-deep)">'+totalB+'</div><div style="font-size:12px;color:var(--ink-faint)">Total</div></div></div></div>';
   if(p.materiales&&p.materiales.length){ html+='<div class="card"><div class="card-h">Materiales necesarios · del presupuesto</div>'+p.materiales.map(function(m){return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid var(--line);font-size:14px"><span>'+esc(m.nombre)+'</span><span style="font-family:\'Space Grotesk\';font-weight:700">'+m.cant+' '+esc(m.unidad||'')+'</span></div>';}).join('')+'</div>'; }
+  html+=planosCard(o.id,p,soc)+pendientesCard(o.id,p,soc);
   if(!p.ambientes.length)html+='<div class="empty">Todavía no cargaste ambientes.'+(soc?' Sumá el primero 👇':'')+'</div>';
   else html+=p.ambientes.map(function(a){return ambienteCardHub(o.id,a,soc);}).join('');
   if(soc)html+='<button class="btn primary" style="margin-top:12px" onclick="addAmbienteMenu(\''+o.id+'\')">'+ICO.plus+' Agregar ambiente</button>';
@@ -682,6 +683,57 @@ function addAmbienteMenu(oid){
 function addAmbiente(oid,nombre){nombre=(nombre||'').trim();if(!nombre)return;var p=getProd(oid);var final=nombre,n=2;while(p.ambientes.some(function(a){return a.nombre===final;})){final=nombre+' '+n;n++;}p.ambientes.push({id:uid(),nombre:final,bocas:{},tareas:{}});saveProd(oid);closeModal();renderObras();}
 function delAmbiente(oid,aid){if(!confirm('¿Quitar este ambiente? Se pierden sus bocas y tildes.'))return;var p=getProd(oid);p.ambientes=p.ambientes.filter(function(a){return a.id!==aid;});saveProd(oid);renderObras();}
 function renameAmbiente(oid,aid){var p=getProd(oid);var a=p.ambientes.find(function(x){return x.id===aid;});if(!a)return;var nn=prompt('Nuevo nombre del ambiente:',a.nombre);if(nn===null)return;var v=nn.trim();if(!v)return;a.nombre=v;saveProd(oid);renderObras();}
+
+/* ---- Planos / documentación (links) ---- */
+function planosCard(oid,p,soc){
+  var planos=p.planos||[];
+  var rows=planos.length?planos.map(function(pl){
+    return '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line)">'+
+      '<span style="font-size:17px;flex-shrink:0">📄</span>'+
+      '<a href="'+esc(pl.url)+'" target="_blank" rel="noopener" style="flex:1;min-width:0;color:var(--ink);font-size:14px;font-weight:600;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(pl.nombre)+'</a>'+
+      '<a href="'+esc(pl.url)+'" target="_blank" rel="noopener" class="btn ghost sm" style="text-decoration:none">Abrir</a>'+
+      (soc?'<button class="btn-ico danger" onclick="delPlano(\''+oid+'\',\''+pl.id+'\')" title="Quitar">'+ICO.trash+'</button>':'')+
+    '</div>';
+  }).join(''):'<div class="empty" style="padding:6px 0 2px">Todavía no hay planos cargados.</div>';
+  return '<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px"><div class="card-h" style="margin:0">Planos y documentación</div>'+(soc?'<button class="btn primary sm" onclick="addPlano(\''+oid+'\')">'+ICO.plus+' Agregar</button>':'')+'</div>'+rows+'</div>';
+}
+function addPlano(oid){
+  modal('<div class="modal-head"><h2>Agregar plano</h2><button class="btn-ico" onclick="closeModal()">'+ICO.x+'</button></div>'+
+    '<div class="modal-body">'+
+      '<div class="field"><label>Nombre</label><input id="pl-nombre" placeholder="Ej: Planta eléctrica, Unifilar, Foto de obra"></div>'+
+      '<div class="field"><label>Link del plano</label><input id="pl-url" placeholder="Pegá el enlace (Google Drive, Fotos, Dropbox…)"></div>'+
+      '<div style="font-size:12px;color:var(--ink-faint)">Subí el archivo a Google Drive, Fotos o Dropbox y pegá acá el link para compartir.</div>'+
+    '</div>'+
+    '<div class="modal-foot"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" onclick="savePlano(\''+oid+'\')">Agregar</button></div>');
+  setTimeout(function(){var el=document.getElementById('pl-nombre');if(el)el.focus();},50);
+}
+function savePlano(oid){
+  var nombre=(document.getElementById('pl-nombre').value||'').trim();
+  var url=(document.getElementById('pl-url').value||'').trim();
+  if(!url){alert('Pegá el link del plano.');return;}
+  if(!/^https?:\/\//i.test(url)) url='https://'+url;
+  if(!nombre) nombre='Plano';
+  var p=getProd(oid);p.planos=p.planos||[];p.planos.push({id:uid(),nombre:nombre,url:url,creado:new Date().toISOString()});saveProd(oid);closeModal();renderObras();
+}
+function delPlano(oid,pid){if(!confirm('¿Quitar este plano?'))return;var p=getProd(oid);p.planos=(p.planos||[]).filter(function(x){return x.id!==pid;});saveProd(oid);renderObras();}
+
+/* ---- Checklist de pendientes (editable, libre) ---- */
+function pendientesCard(oid,p,soc){
+  var items=p.pendientes||[];
+  var hechas=items.filter(function(x){return x.hecha;}).length;
+  var rows=items.length?items.map(function(it){
+    return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--line)">'+
+      '<div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0;cursor:pointer" onclick="togglePendiente(\''+oid+'\',\''+it.id+'\')">'+chkBox(!!it.hecha)+'<span style="font-size:14px;'+(it.hecha?'color:var(--ink-faint);text-decoration:line-through':'')+'">'+esc(it.txt)+'</span></div>'+
+      (soc?'<button class="btn-ico" onclick="editPendiente(\''+oid+'\',\''+it.id+'\')" title="Editar">'+ICO.edit+'</button><button class="btn-ico danger" onclick="delPendiente(\''+oid+'\',\''+it.id+'\')" title="Quitar">'+ICO.trash+'</button>':'')+
+    '</div>';
+  }).join(''):'<div class="empty" style="padding:6px 0 2px">No hay tareas pendientes cargadas.</div>';
+  var adder=soc?'<div style="display:flex;gap:8px;margin-top:10px"><input id="pend-input" placeholder="Nueva tarea pendiente…" onkeydown="if(event.key===\'Enter\')addPendiente(\''+oid+'\')" style="flex:1;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font-size:14px"><button class="btn primary sm" onclick="addPendiente(\''+oid+'\')">'+ICO.plus+'</button></div>':'';
+  return '<div class="card"><div class="card-h">Tareas pendientes'+(items.length?(' · '+hechas+'/'+items.length):'')+'</div>'+rows+adder+'</div>';
+}
+function addPendiente(oid){var el=document.getElementById('pend-input');if(!el)return;var v=el.value.trim();if(!v)return;var p=getProd(oid);p.pendientes=p.pendientes||[];p.pendientes.push({id:uid(),txt:v,hecha:false});saveProd(oid);renderObras();}
+function togglePendiente(oid,pid){var p=getProd(oid);var it=(p.pendientes||[]).find(function(x){return x.id===pid;});if(!it)return;it.hecha=!it.hecha;saveProd(oid);renderObras();}
+function editPendiente(oid,pid){var p=getProd(oid);var it=(p.pendientes||[]).find(function(x){return x.id===pid;});if(!it)return;var nn=prompt('Editar tarea:',it.txt);if(nn===null)return;var v=nn.trim();if(!v)return;it.txt=v;saveProd(oid);renderObras();}
+function delPendiente(oid,pid){if(!confirm('¿Quitar esta tarea pendiente?'))return;var p=getProd(oid);p.pendientes=(p.pendientes||[]).filter(function(x){return x.id!==pid;});saveProd(oid);renderObras();}
 
 /* ---- alta/edición de OBRA (compartida con Caja) ---- */
 function obraForm(id){
