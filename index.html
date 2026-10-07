@@ -587,7 +587,8 @@ function renderObrasList(){
       '<button class="btn sm '+(obrasFilter==='activas'?'primary':'')+'" onclick="setObrasFilter(\'activas\')">Activas · '+activas.length+'</button>'+
       '<button class="btn sm '+(obrasFilter==='pendiente'?'primary':'')+'" onclick="setObrasFilter(\'pendiente\')">Pendientes · '+pend.length+'</button>'+
       '<button class="btn sm '+(obrasFilter==='archivo'?'primary':'')+'" onclick="setObrasFilter(\'archivo\')">Archivadas · '+archivo.length+'</button>'+
-      '<button class="btn primary sm" style="margin-left:auto" onclick="obraForm()">'+ICO.plus+' Nueva obra</button>'+
+      '<button class="btn sm" style="margin-left:auto" onclick="waObrasMenu()">📲 Estado</button>'+
+      '<button class="btn primary sm" onclick="obraForm()">'+ICO.plus+' Nueva obra</button>'+
     '</div>';
   }
   var _em= (soc&&obrasFilter==='archivo')?'No hay obras finalizadas ni canceladas.':((soc&&obrasFilter==='pendiente')?'No hay obras pendientes de confirmar.':'No hay obras activas.');
@@ -1074,6 +1075,40 @@ function waRefresh(){var dayEl=document.getElementById('wa-day');document.getEle
 function waSend(){var txt=document.getElementById('wa-text').value;window.open('https://wa.me/?text='+encodeURIComponent(txt),'_blank');}
 function waCopy(){var txt=document.getElementById('wa-text').value;if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(function(){toast('Mensaje copiado');},function(){waCopyFallback();});}else{waCopyFallback();}}
 function waCopyFallback(){var ta=document.getElementById('wa-text');if(!ta)return;ta.focus();ta.select();try{document.execCommand('copy');toast('Mensaje copiado');}catch(e){toast('Copialo manualmente');}}
+
+/* ---- Estado de obras activas para WhatsApp (según tareas pendientes) ---- */
+function cliNombreAny(id){var arr=(OB.clientes&&OB.clientes.length)?OB.clientes:(DASH.clientes||[]);var c=arr.find(function(x){return x.id==id;});return c?c.nombre:'';}
+function waObrasBuild(){
+  var obras=allObras().filter(function(o){return (o.estado||'activa').toLowerCase()==='activa';}).slice().sort(byNombre);
+  var header='🏗️⚡ *Estado de obras activas*\n📅 '+fmtFechaLarga(isoDate(new Date()));
+  if(!obras.length) return header+'\n\nNo hay obras activas en este momento.\n\n⚡ _Grupo Voltum_';
+  var body=obras.map(function(o){
+    var p=(OB.prod&&OB.prod[o.id])||(DASH.prod&&DASH.prod[o.id])||{};
+    var pend=p.pendientes||[];
+    var abiertas=pend.filter(function(x){return !x.hecha;});
+    var hechas=pend.length-abiertas.length;
+    var cli=cliNombreAny(o.clienteId);
+    var line='🏗️ *'+o.nombre+'*'+(cli?(' — '+cli):'');
+    if(o.etapa) line+='\n📍 Etapa: '+o.etapa;
+    if(!pend.length){ line+='\n   ▸ _Sin tareas pendientes cargadas_'; }
+    else if(!abiertas.length){ line+='\n   ✅ ¡Todo al día! ('+hechas+'/'+pend.length+' hechas)'; }
+    else {
+      line+='\n   📋 Pendientes ('+abiertas.length+(hechas?(' · '+hechas+' ya hechas'):'')+'):';
+      line+='\n'+abiertas.map(function(it){return '      ▸ '+it.txt;}).join('\n');
+    }
+    return line;
+  }).join('\n\n');
+  return header+'\n\n'+body+'\n\n⚡ _Grupo Voltum_';
+}
+function waObrasMenu(){
+  modal('<div class="modal-head"><h2>Estado de obras · WhatsApp</h2><button class="btn-ico" onclick="closeModal()">'+ICO.x+'</button></div>'+
+    '<div class="modal-body">'+
+      '<textarea id="wa-text" style="width:100%;min-height:260px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font-size:13px;line-height:1.5;font-family:inherit;resize:vertical"></textarea>'+
+      '<div style="font-size:12px;color:var(--ink-faint);margin-top:6px">Toma la etapa y las tareas pendientes de cada obra activa. Podés editarlo antes de enviar.</div>'+
+    '</div>'+
+    '<div class="modal-foot"><button class="btn ghost" onclick="waCopy()">Copiar</button><button class="btn primary" onclick="waSend()">Abrir WhatsApp</button></div>');
+  document.getElementById('wa-text').value=waObrasBuild();
+}
 function tareaChip(t,col){
   var done=!!t.hecha; var bg=col+(done?'14':'22');
   return '<div onclick="tareaMenu(\''+t.id+'\')" title="'+esc(t.descripcion||'')+'" style="cursor:pointer;background:'+bg+';border-left:3px solid '+col+';border-radius:6px;padding:5px 7px;line-height:1.25;'+(done?'opacity:.55':'')+'">'+
