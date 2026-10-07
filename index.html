@@ -969,6 +969,7 @@ function saveAsignTarea(oid,aid,ek,tk){
 /* ---- CALENDARIO (semanal) ---- */
 function calWeek(delta){CAL_OFF+=delta;renderCalendario();}
 function calToday(){CAL_OFF=0;renderCalendario();}
+function irAObra(id){ if((!OB.obras||!OB.obras.length)&&DASH.obras&&DASH.obras.length){OB.obras=DASH.obras.slice();OB.clientes=DASH.clientes.slice();OB.prod=Object.assign({},DASH.prod);} go('obras'); openObraId=id; renderObras(); window.scrollTo(0,0); }
 function tareaChip(t,col){
   var done=!!t.hecha; var bg=col+(done?'14':'22');
   return '<div onclick="tareaMenu(\''+t.id+'\')" title="'+esc(t.descripcion||'')+'" style="cursor:pointer;background:'+bg+';border-left:3px solid '+col+';border-radius:6px;padding:5px 7px;line-height:1.25;'+(done?'opacity:.55':'')+'">'+
@@ -999,8 +1000,15 @@ function renderCalendario(){
     }).join('');
     return '<tr><td style="position:sticky;left:0;background:var(--card);z-index:1"><div style="display:flex;align-items:center;gap:8px"><span style="width:14px;height:14px;border-radius:50%;background:'+col+';flex-shrink:0"></span><div style="min-width:0"><div style="font-weight:600;font-size:13px">'+esc(u.nombre)+'</div><div style="font-size:11px;color:var(--ink-faint)">'+esc(u.oficio||'')+'</div></div></div></td>'+cells+'</tr>';
   }).join('');
+  var obrasAP=allObras().filter(function(o){var e=(o.estado||'activa').toLowerCase();return e==='activa'||e==='pendiente';}).sort(byNombre);
+  var listHtml=obrasAP.length?obrasAP.map(function(o){
+    return '<div onclick="irAObra(\''+o.id+'\')" style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-top:1px solid var(--line);cursor:pointer">'+
+      '<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13.5px">'+esc(o.nombre)+'</div></div>'+estadoPill(o.estado)+'</div>';
+  }).join(''):'<div class="empty" style="padding:12px 14px">No hay obras activas ni pendientes.</div>';
+  var obrasBlock='<div class="card" style="padding:0;overflow:hidden;margin-top:14px"><details><summary style="cursor:pointer;padding:14px 16px;font-weight:600;font-size:13px;list-style:none">▸ Obras activas y pendientes · '+obrasAP.length+'</summary><div style="padding-bottom:4px">'+listHtml+'</div></details></div>';
   c.innerHTML=head+'<div class="card" style="padding:0;overflow-x:auto"><table class="cal-table"><thead><tr>'+thead+'</tr></thead><tbody>'+(body||'<tr><td colspan="7" class="empty">No hay empleados cargados.</td></tr>')+'</tbody></table></div>'+
-    '<div style="font-size:12px;color:var(--ink-faint);padding:8px 4px">Tocá un día para asignar una tarea. Las tareas del checklist de cada obra también aparecen acá.</div>';
+    '<div style="font-size:12px;color:var(--ink-faint);padding:8px 4px">Tocá un día para asignar una tarea. Las tareas del checklist de cada obra también aparecen acá.</div>'+
+    obrasBlock;
 }
 
 </script>
