@@ -433,7 +433,7 @@ function semanaBlock(texto,titulo){
 }
 
 function obraRow(o){
-  return '<div style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-top:1px solid var(--line)">'+
+  return '<div onclick="irAObra(\''+o.id+'\')" style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-top:1px solid var(--line);cursor:pointer">'+
     '<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:14px">'+esc(o.nombre)+'</div>'+
     '<div style="font-size:12px;color:var(--ink-faint)">'+esc(dashClienteNombre(o.clienteId))+'</div></div>'+
     (o.etapa?'<span class="pill" style="background:var(--bg);color:var(--ink-soft)">'+esc(o.etapa)+'</span>':'')+
@@ -472,12 +472,12 @@ function renderInicioSocio(c){
     kpi('Finalizadas',finalizadas.length,'var(--ink-soft)')+
     kpi('Pendientes de confirmar',obrasPend.length,'var(--amber)')+
   '</div>';
-  html+=listaObrasCard('Obras activas',activas,'No hay obras activas.',false);
-  if(obrasPend.length) html+=listaObrasCard('Obras pendientes de confirmar',obrasPend,'No hay obras pendientes de confirmar.',false);
-  html+=listaObrasCard('Finalizadas',finalizadas,'Todavía no hay obras finalizadas.',true);
   var _sem=tareasSemana(null);
   var _semc=_sem.length?_sem.map(function(t){var em=empById(t.empleadoId);return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line)'+(t.hecha?';opacity:.55':'')+'"><div style="flex:1;min-width:0"><div style="font-weight:600;font-size:14px'+(t.hecha?';text-decoration:line-through':'')+'">'+esc(t.descripcion||'')+'</div><div style="font-size:12px;color:var(--ink-faint)">'+esc(obraNombreAny(t.obraId))+' · '+esc(em?em.nombre:'—')+'</div></div><div style="font-size:12px;color:var(--volt-deep);font-weight:600;white-space:nowrap">'+fmtFechaCorta(t.fecha)+'</div></div>';}).join(''):'<div style="color:var(--ink-soft);font-size:13.5px">No hay trabajo programado para esta semana todavía.</div>';
   html+=semanaBlock(_semc,'Agenda de esta semana');
+  html+=listaObrasCard('Obras activas',activas,'No hay obras activas.',true);
+  if(obrasPend.length) html+=listaObrasCard('Obras pendientes de confirmar',obrasPend,'No hay obras pendientes de confirmar.',true);
+  html+=listaObrasCard('Finalizadas',finalizadas,'Todavía no hay obras finalizadas.',true);
   html+='<div class="card"><div class="card-h">Accesos rápidos</div><div style="display:flex;gap:10px;flex-wrap:wrap">'+
     '<button class="btn primary" onclick="go(\'presupuestador\')">Nuevo presupuesto</button>'+
     '<button class="btn" onclick="go(\'obras\')">Ver obras</button>'+
@@ -495,7 +495,7 @@ function renderInicioColab(c){
     '<div class="card-h" style="padding:16px 18px 0">Obras activas</div>';
   if(activas.length){
     html+='<div style="padding:8px 0 6px">'+activas.map(function(o){
-      return '<div style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-top:1px solid var(--line)">'+
+      return '<div onclick="irAObra(\''+o.id+'\')" style="display:flex;align-items:center;gap:10px;padding:10px 18px;border-top:1px solid var(--line);cursor:pointer">'+
         '<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:14px">'+esc(o.nombre)+'</div>'+
         '<div style="font-size:12px;color:var(--ink-faint)">'+esc(dashClienteNombre(o.clienteId))+'</div></div></div>';
     }).join('')+'</div>';
