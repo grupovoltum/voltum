@@ -1318,7 +1318,7 @@ function abrirPlano(id){
     PL={id:id,oid:meta.obraId,nombre:meta.nombre,img:img,mkSize:meta.mkSize||18,tx:0,ty:0,scale:1,activeTipo:'toma',addMode:false,soc:isSocio(),ambId:(ambs[0]?ambs[0].id:''),
         mode:'bocas',rutas:(meta.rutas||[]),mpp:(typeof meta.mpp==='number'?meta.mpp:0),calib:(meta.calib||null),
         bajada:(typeof meta.bajada==='number'?meta.bajada:2.7),condBajada:(typeof meta.condBajada==='number'?meta.condBajada:2),waste:(typeof meta.waste==='number'?meta.waste:10),
-        circuitos:(meta.circuitos||[]),largoRet:(typeof meta.largoRet==='number'?meta.largoRet:2.7),curCirc:'',
+        circuitos:(meta.circuitos||[]),largoRet:(typeof meta.largoRet==='number'?meta.largoRet:2.7),retSeccion:(typeof meta.retSeccion==='number'?meta.retSeccion:1.5),curCirc:'',
         curColor:'#F43F5E',curCond:2,curRoute:null,calibMode:false,calibA:null};
     renderPlanoScreen();
   }).catch(function(e){ alert('No se pudo abrir el plano: '+e.message); });
@@ -1346,7 +1346,7 @@ function renderPlanoScreen(){
       '<div class="pl-row" style="gap:12px"><span style="font-size:12px;color:#a0a6b0;white-space:nowrap">Tamaño</span><input type="range" min="9" max="34" value="'+PL.mkSize+'" id="pl-size" style="flex:1;accent-color:#12E56B"></div></div>') : '';
   var tbarCano = soc ? ('<div id="pl-tbar-cano" style="display:none">'+
       '<div class="pl-row" style="gap:8px"><span class="pl-hint" id="pl-escala">Escala: —</span><button class="pl-btn sm" id="pl-calib">Calibrar escala</button></div>'+
-      '<div class="pl-row" style="gap:8px"><span style="font-size:12px;color:#a0a6b0;white-space:nowrap">Circuito</span><select id="pl-circ" onchange="plSelCirc(this.value)" style="flex:1;min-width:0;background:#1b1b1d;color:#f3f4f6;border:1px solid #2a2a2e;border-radius:9px;padding:7px 9px;font-size:13px">'+plCircOptions(PL.curCirc)+'</select><span style="font-size:12px;color:#a0a6b0">Cond.</span><input type="number" min="1" max="20" value="'+PL.curCond+'" id="pl-cond" style="width:50px;background:#1b1b1d;color:#f3f4f6;border:1px solid #2a2a2e;border-radius:8px;padding:6px 8px;font-size:13px"></div>'+
+      '<div class="pl-row" style="gap:8px"><span style="font-size:12px;color:#a0a6b0;white-space:nowrap">Circuito</span><select id="pl-circ" onchange="plSelCirc(this.value)" style="flex:1;min-width:0;background:#1b1b1d;color:#f3f4f6;border:1px solid #2a2a2e;border-radius:9px;padding:7px 9px;font-size:13px">'+plCircOptions(PL.curCirc)+'</select><span style="font-size:11px;color:#6b7280;white-space:nowrap">cables → Medición</span></div>'+
       '<div class="pl-row"><div class="pl-sw" id="pl-drawSw"><span class="pl-track"><span class="pl-knob"></span></span><span>Dibujar caño</span></div><span class="pl-hint" id="pl-drawhint"></span></div>'+
       '<div class="pl-row" style="gap:6px"><button class="pl-btn sm" id="pl-undo">↶ Deshacer</button><button class="pl-btn sm primary" id="pl-finish">Terminar ruta</button><button class="pl-btn sm" style="margin-left:auto" onclick="plOpenMed()">📐 Medición</button></div>'+
     '</div>') : '';
@@ -1402,7 +1402,6 @@ function plBind(){
     plSetAdd(false); plUpdatePend();
     // caño
     document.getElementById('pl-calib').onclick=function(){ PL.calibMode=!PL.calibMode; PL.calibA=null; if(PL.calibMode){plSetDraw(false);} plCanoHint(); };
-    document.getElementById('pl-cond').oninput=function(){ PL.curCond=Math.max(1,parseInt(this.value)||1); if(PL.curRoute)PL.curRoute.cond=PL.curCond; };
     document.getElementById('pl-drawSw').onclick=function(){ plSetDraw(!PL.drawMode); };
     document.getElementById('pl-undo').onclick=function(){ if(PL.curRoute&&PL.curRoute.pts.length){ PL.curRoute.pts.pop(); plRenderRutas(); } };
     document.getElementById('pl-finish').onclick=plFinishRoute;
@@ -1470,26 +1469,48 @@ function plRenderRutas(){
   if(PL.calibMode&&PL.calibA){ parts.push(dots([PL.calibA],'#12E56B')); }
   svg.innerHTML=parts.join('');
 }
+/* ---- cables (conductores) por ruta / sección+función ---- */
+var CABLE_FUN={fase:{n:'Fase',c:'#C2855B'},neutro:{n:'Neutro',c:'#38BDF8'},tierra:{n:'Tierra',c:'#A3E635'},retorno:{n:'Retorno',c:'#F59E0B'}};
+var CABLE_FUNS=['fase','neutro','tierra','retorno'];
+var CABLE_SECC=[1,1.5,2.5,4,6,10,16];
+function funNom(f){return (CABLE_FUN[f]||{n:f}).n;}
+function funColor(f){return (CABLE_FUN[f]||{c:'#9CA3AF'}).c;}
+function tipoDefaultCables(tipo){ var s=(tipo==='toma')?2.5:(tipo==='especial')?4:1.5; return [{s:s,f:'fase'},{s:s,f:'neutro'},{s:s,f:'tierra'}].map(function(x){return {s:x.s,f:x.f,c:funColor(x.f),n:1};}); }
+function circTipoOf(id){ var c=circById(id); return c?c.tipo:'toma'; }
+function routeCables(r){ if(r.cables&&r.cables.length)return r.cables; return tipoDefaultCables(circTipoOf(r.circuitoId)); }
+function ensureCables(r){ if(!r.cables||!r.cables.length) r.cables=tipoDefaultCables(circTipoOf(r.circuitoId)).map(function(x){return {s:x.s,f:x.f,c:x.c,n:x.n};}); return r.cables; }
+function routeCond(r){ return routeCables(r).reduce(function(a,cb){return a+(cb.n||1);},0); }
+function bajadaCables(it){ return tipoDefaultCables(circTipoOf(it.circuitoId)); }
+function cableBreakdown(circId){
+  var map={},order=[],w=1+((PL.waste||0)/100);
+  function add(s,f,c,m){ if(m<=0)return; var k=s+'|'+f; if(!map[k]){map[k]={s:s,f:f,c:c,m:0};order.push(k);} map[k].m+=m; }
+  PL.rutas.forEach(function(r){ if(circId&&r.circuitoId!==circId)return; var L=routeLenM(r); routeCables(r).forEach(function(cb){ add(cb.s,cb.f,cb.c||funColor(cb.f),L*(cb.n||1)); }); });
+  planoItemsDe(PL.oid,PL.id).forEach(function(rr){ var it=rr.item; if(circId&&it.circuitoId!==circId)return; bajadaCables(it).forEach(function(cb){ add(cb.s,cb.f,cb.c||funColor(cb.f),(PL.bajada||0)*(cb.n||1)); }); });
+  (PL.circuitos||[]).forEach(function(c){ if(circId&&c.id!==circId)return; var ret=circRetornos(c); if(ret>0) add(PL.retSeccion||1.5,'retorno',funColor('retorno'),ret*(PL.largoRet||0)); });
+  return order.map(function(k){var o=map[k];return {s:o.s,f:o.f,c:o.c,m:o.m*w};}).sort(function(a,b){return (b.s-a.s)||CABLE_FUNS.indexOf(a.f)-CABLE_FUNS.indexOf(b.f);});
+}
+function cableTotalM(circId){ return cableBreakdown(circId).reduce(function(a,o){return a+o.m;},0); }
+function secFmt(s){ return (s===1?'1':String(s).replace('.',','))+'mm²'; }
 function plMedTotals(){
-  var routesLen=0, cableRoutes=0;
-  PL.rutas.forEach(function(r){ var L=routeLenM(r); routesLen+=L; cableRoutes+=L*(r.cond||1); });
+  var routesLen=0;
+  PL.rutas.forEach(function(r){ routesLen+=routeLenM(r); });
   var nBocas=planoItemsDe(PL.oid,PL.id).length;
   var bajTot=nBocas*(PL.bajada||0);
   var retN=0; (PL.circuitos||[]).forEach(function(c){ retN+=circRetornos(c); });
   var retTot=retN*(PL.largoRet||0);
   var w=1+((PL.waste||0)/100);
   var cano=(routesLen+bajTot)*w;
-  var cable=(cableRoutes + nBocas*(PL.bajada||0)*(PL.condBajada||0) + retTot)*w;
-  return {routesLen:routesLen,cableRoutes:cableRoutes,nBocas:nBocas,bajTot:bajTot,retN:retN,retTot:retTot,cano:cano,cable:cable};
+  var cable=cableTotalM(null);
+  return {routesLen:routesLen,nBocas:nBocas,bajTot:bajTot,retN:retN,retTot:retTot,cano:cano,cable:cable};
 }
 function circData(c){
   var routes=PL.rutas.filter(function(r){return r.circuitoId===c.id;});
   var bocas=planoItemsDe(PL.oid,PL.id).filter(function(r){return r.item.circuitoId===c.id;});
-  var rLen=0,cableR=0; routes.forEach(function(r){var L=routeLenM(r);rLen+=L;cableR+=L*(r.cond||1);});
-  var nB=bocas.length, baj=nB*(PL.bajada||0), cableBaj=nB*(PL.bajada||0)*(PL.condBajada||0);
-  var ret=circRetornos(c), cableRet=ret*(PL.largoRet||0);
+  var rLen=0; routes.forEach(function(r){rLen+=routeLenM(r);});
+  var nB=bocas.length, baj=nB*(PL.bajada||0);
+  var ret=circRetornos(c);
   var w=1+((PL.waste||0)/100);
-  return {routes:routes.length,nB:nB,rLen:rLen,ret:ret,cano:(rLen+baj)*w,cable:(cableR+cableBaj+cableRet)*w};
+  return {routes:routes.length,nB:nB,rLen:rLen,ret:ret,cano:(rLen+baj)*w,cable:cableTotalM(c.id)};
 }
 function m1(x){ return (Math.round(x*10)/10).toLocaleString('es-AR'); }
 function plCanoTotals(){
@@ -1499,7 +1520,7 @@ function plCanoTotals(){
   el.textContent='Caño: '+m1(t.cano)+' m · Cable: '+m1(t.cable)+' m';
   if(lg)lg.innerHTML='<div class="pl-lg">Recorrido '+m1(t.routesLen)+' m</div><div class="pl-lg">Bajadas '+m1(t.bajTot)+' m</div><div class="pl-lg">Retornos '+t.retN+'</div><div class="pl-lg">Desperdicio '+(PL.waste||0)+'%</div>';
 }
-function plSaveMed(){ db.collection('planos').doc(PL.id).set({rutas:PL.rutas,mpp:PL.mpp,calib:PL.calib,bajada:PL.bajada,condBajada:PL.condBajada,waste:PL.waste,circuitos:PL.circuitos,largoRet:PL.largoRet},{merge:true}).catch(function(e){toast('Error al guardar medición');}); }
+function plSaveMed(){ db.collection('planos').doc(PL.id).set({rutas:PL.rutas,mpp:PL.mpp,calib:PL.calib,bajada:PL.bajada,waste:PL.waste,circuitos:PL.circuitos,largoRet:PL.largoRet,retSeccion:PL.retSeccion},{merge:true}).catch(function(e){toast('Error al guardar medición');}); }
 /* ---- circuitos ---- */
 var LIGHT_TIPOS=['luz','losa','aplique'];
 function circById(id){ return (PL.circuitos||[]).find(function(c){return c.id===id;}); }
@@ -1521,10 +1542,11 @@ function plMedRender(){
   var t=plMedTotals();
   var h='<div class="pl-sheet-h"><b>Medición de materiales</b><button class="pl-btn sm" style="margin-left:auto" onclick="plMedClose()">Cerrar</button></div>';
   if(!(PL.mpp>0)) h+='<div style="color:#FB923C;font-size:12.5px;margin-bottom:12px;line-height:1.4">⚠ Primero calibrá la escala con el botón "Calibrar escala" para que las medidas sean reales.</div>';
+  var retSecOpts=CABLE_SECC.map(function(s){return '<option value="'+s+'"'+((PL.retSeccion||1.5)===s?' selected':'')+'>'+secFmt(s)+'</option>';}).join('');
   h+='<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">'+
     '<div class="pl-row"><span style="flex:1;font-size:13px;color:#cfd3da">Bajada por boca (m)</span><input type="number" step="0.1" min="0" value="'+PL.bajada+'" id="med-bajada" style="'+_mIn+'"></div>'+
-    '<div class="pl-row"><span style="flex:1;font-size:13px;color:#cfd3da">Conductores por bajada</span><input type="number" step="1" min="0" value="'+PL.condBajada+'" id="med-cond" style="'+_mIn+'"></div>'+
     '<div class="pl-row"><span style="flex:1;font-size:13px;color:#cfd3da">Largo de retorno (m)</span><input type="number" step="0.1" min="0" value="'+PL.largoRet+'" id="med-ret" style="'+_mIn+'"></div>'+
+    '<div class="pl-row"><span style="flex:1;font-size:13px;color:#cfd3da">Sección de retorno</span><select id="med-retsec" style="'+_mIn+'">'+retSecOpts+'</select></div>'+
     '<div class="pl-row"><span style="flex:1;font-size:13px;color:#cfd3da">Desperdicio (%)</span><input type="number" step="1" min="0" value="'+PL.waste+'" id="med-waste" style="'+_mIn+'"></div>'+
   '</div>';
   // circuitos
@@ -1540,17 +1562,33 @@ function plMedRender(){
         '<span style="font-size:12px;color:#a0a6b0;white-space:nowrap">Ret.</span><input type="number" min="0" placeholder="'+circRetornos(c)+'" value="'+(c.ret!=null?c.ret:'')+'" onchange="plCircRet(\''+c.id+'\',this.value)" title="Retornos (vacío = automático)" style="width:46px;'+_selIn+';text-align:right"></div>'+
       '<div style="display:flex;gap:10px;font-size:12px;color:#a0a6b0;flex-wrap:wrap"><span>'+cd.nB+' bocas · '+cd.routes+' rutas · '+cd.ret+' ret.</span><span style="margin-left:auto">Caño <b style="color:#12E56B">'+m1(cd.cano)+'m</b> · Cable <b style="color:#22D3EE">'+m1(cd.cable)+'m</b></span></div>'+
     '</div>'; }).join('');
-  // rutas
+  // rutas con editor de cables
   if(PL.rutas.length){
     h+='<div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin:8px 0 2px">Recorridos ('+PL.rutas.length+')</div>';
-    h+=PL.rutas.map(function(r,i){ var L=routeLenM(r); return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid #2a2a2e">'+
-      '<span style="width:12px;height:12px;border-radius:50%;background:'+(r.color||'#F43F5E')+';flex-shrink:0"></span>'+
-      '<select onchange="plRutaCirc('+i+',this.value)" style="flex:1;min-width:0;'+_selIn+'">'+plCircOptsPlain(r.circuitoId)+'</select>'+
-      '<input type="number" min="1" value="'+(r.cond||1)+'" onchange="plRutaCond('+i+',this.value)" title="conductores" style="width:44px;'+_selIn+';text-align:right">'+
-      '<span style="font-family:\'Space Grotesk\';font-weight:700;white-space:nowrap">'+m1(L)+'m</span>'+
-      '<button class="pl-btn sm danger" style="padding:4px 7px" onclick="plDelRuta('+i+')">✕</button></div>';
+    h+=PL.rutas.map(function(r,i){ var L=routeLenM(r); var cbs=routeCables(r); var open=plOpenRuta[r.id];
+      var row='<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid #2a2a2e">'+
+        '<span style="width:12px;height:12px;border-radius:50%;background:'+(r.color||'#F43F5E')+';flex-shrink:0"></span>'+
+        '<select onchange="plRutaCirc('+i+',this.value)" style="flex:1;min-width:0;'+_selIn+'">'+plCircOptsPlain(r.circuitoId)+'</select>'+
+        '<button class="pl-btn sm" onclick="plRutaToggle('+i+')" style="padding:4px 8px">'+routeCond(r)+' cond '+(open?'▴':'▾')+'</button>'+
+        '<span style="font-family:\'Space Grotesk\';font-weight:700;white-space:nowrap">'+m1(L)+'m</span>'+
+        '<button class="pl-btn sm danger" style="padding:4px 7px" onclick="plDelRuta('+i+')">✕</button></div>';
+      if(open){
+        var secOpts=function(sel){return CABLE_SECC.map(function(s){return '<option value="'+s+'"'+(sel===s?' selected':'')+'>'+secFmt(s)+'</option>';}).join('');};
+        var funOpts=function(sel){return CABLE_FUNS.map(function(f){return '<option value="'+f+'"'+(sel===f?' selected':'')+'>'+funNom(f)+'</option>';}).join('');};
+        var lines=cbs.map(function(cb,j){return '<div style="display:flex;align-items:center;gap:6px"><span style="width:12px;height:12px;border-radius:50%;background:'+(cb.c||funColor(cb.f))+';flex-shrink:0"></span>'+
+          '<select onchange="plRutaCableSet('+i+','+j+',\'s\',this.value)" style="'+_selIn+'">'+secOpts(cb.s)+'</select>'+
+          '<select onchange="plRutaCableSet('+i+','+j+',\'f\',this.value)" style="flex:1;min-width:0;'+_selIn+'">'+funOpts(cb.f)+'</select>'+
+          '<input type="number" min="1" value="'+(cb.n||1)+'" onchange="plRutaCableSet('+i+','+j+',\'n\',this.value)" title="cantidad" style="width:42px;'+_selIn+';text-align:right">'+
+          '<button class="pl-btn sm danger" style="padding:3px 6px" onclick="plRutaCableDel('+i+','+j+')">✕</button></div>';}).join('');
+        row+='<div style="padding:4px 0 10px 20px;display:flex;flex-direction:column;gap:6px">'+lines+
+          '<div style="display:flex;gap:6px;margin-top:2px"><button class="pl-btn sm" onclick="plRutaCableAdd('+i+')">+ Conductor</button><button class="pl-btn sm" onclick="plRutaDefault('+i+')">Default del circuito</button></div></div>';
+      }
+      return row;
     }).join('');
   }
+  // desglose de cable
+  var bd=cableBreakdown(null);
+  var bdHtml=bd.length?bd.map(function(o){return '<div style="display:flex;align-items:center;gap:9px;padding:6px 0;border-top:1px solid #2a2a2e"><span style="width:13px;height:13px;border-radius:50%;background:'+o.c+';flex-shrink:0"></span><span style="flex:1;font-size:13.5px">'+secFmt(o.s)+' · '+funNom(o.f)+'</span><span style="font-family:\'Space Grotesk\';font-weight:700">'+m1(o.m)+' m</span></div>';}).join(''):'<div style="color:#6b7280;font-size:13px;padding:6px 0">Dibujá rutas y asigná circuitos para ver el desglose.</div>';
   // totales
   h+='<div style="margin-top:16px;border-top:2px solid #2a2a2e;padding-top:12px">'+
     '<div style="display:flex;justify-content:space-between;font-size:13px;color:#a0a6b0;padding:3px 0">Recorrido de caño<span>'+m1(t.routesLen)+' m</span></div>'+
@@ -1558,15 +1596,22 @@ function plMedRender(){
     '<div style="display:flex;justify-content:space-between;font-size:13px;color:#a0a6b0;padding:3px 0">Retornos ('+t.retN+' × '+m1(PL.largoRet)+' m)<span>'+m1(t.retTot)+' m cable</span></div>'+
     '<div style="display:flex;justify-content:space-between;font-size:13px;color:#a0a6b0;padding:3px 0">Desperdicio<span>'+(PL.waste||0)+'%</span></div>'+
     '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:8px"><span style="font-weight:700">CAÑO TOTAL</span><span style="font-family:\'Space Grotesk\';font-weight:800;font-size:22px;color:#12E56B">'+m1(t.cano)+' m</span></div>'+
-    '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:4px"><span style="font-weight:700">CABLE ESTIMADO</span><span style="font-family:\'Space Grotesk\';font-weight:800;font-size:22px;color:#22D3EE">'+m1(t.cable)+' m</span></div>'+
-    '<div style="font-size:11px;color:#6b7280;margin-top:6px">Cable = Σ(largo × conductores) de cada ruta + bajadas + retornos de iluminación, más desperdicio.</div>'+
   '</div>';
+  h+='<div style="margin-top:14px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin-bottom:2px">Cable por sección y función</div>'+bdHtml+
+    '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:8px;border-top:2px solid #2a2a2e;padding-top:8px"><span style="font-weight:700">CABLE TOTAL</span><span style="font-family:\'Space Grotesk\';font-weight:800;font-size:22px;color:#22D3EE">'+m1(t.cable)+' m</span></div>'+
+    '<div style="font-size:11px;color:#6b7280;margin-top:6px">Incluye recorridos (conductores por ruta) + bajadas (cables del circuito de cada boca) + retornos, con desperdicio.</div></div>';
   document.getElementById('pl-med-in').innerHTML=h;
   var bj=document.getElementById('med-bajada'); if(bj)bj.onchange=function(){PL.bajada=Math.max(0,parseFloat(this.value.replace(',','.'))||0);plSaveMed();plMedRender();plCanoTotals();};
-  var cd=document.getElementById('med-cond'); if(cd)cd.onchange=function(){PL.condBajada=Math.max(0,parseInt(this.value)||0);plSaveMed();plMedRender();plCanoTotals();};
   var rt=document.getElementById('med-ret'); if(rt)rt.onchange=function(){PL.largoRet=Math.max(0,parseFloat(this.value.replace(',','.'))||0);plSaveMed();plMedRender();plCanoTotals();};
+  var rs=document.getElementById('med-retsec'); if(rs)rs.onchange=function(){PL.retSeccion=parseFloat(this.value)||1.5;plSaveMed();plMedRender();plCanoTotals();};
   var ws=document.getElementById('med-waste'); if(ws)ws.onchange=function(){PL.waste=Math.max(0,parseFloat(this.value.replace(',','.'))||0);plSaveMed();plMedRender();plCanoTotals();};
 }
+var plOpenRuta={};
+function plRutaToggle(i){ var r=PL.rutas[i]; if(!r)return; plOpenRuta[r.id]=!plOpenRuta[r.id]; plMedRender(); }
+function plRutaCableAdd(i){ var r=PL.rutas[i]; if(!r)return; ensureCables(r).push({s:2.5,f:'fase',c:funColor('fase'),n:1}); r.cond=routeCond(r); plSaveMed(); plMedRender(); plCanoTotals(); }
+function plRutaCableDel(i,j){ var r=PL.rutas[i]; if(!r)return; ensureCables(r).splice(j,1); r.cond=routeCond(r); plSaveMed(); plMedRender(); plCanoTotals(); }
+function plRutaCableSet(i,j,field,val){ var r=PL.rutas[i]; if(!r)return; var cbs=ensureCables(r); var cb=cbs[j]; if(!cb)return; if(field==='s')cb.s=parseFloat(val)||cb.s; else if(field==='f'){cb.f=val;cb.c=funColor(val);} else if(field==='n')cb.n=Math.max(1,parseInt(val)||1); r.cond=routeCond(r); plSaveMed(); plMedRender(); plCanoTotals(); }
+function plRutaDefault(i){ var r=PL.rutas[i]; if(!r)return; r.cables=tipoDefaultCables(circTipoOf(r.circuitoId)).map(function(x){return {s:x.s,f:x.f,c:x.c,n:x.n};}); r.cond=routeCond(r); plSaveMed(); plMedRender(); plCanoTotals(); }
 function plNuevoCirc(){ var nn=prompt('Nombre del circuito:'); if(nn===null)return; nn=nn.trim(); if(!nn)return; nuevoCircuito(nn,'luz'); var s=document.getElementById('pl-circ'); if(s){s.innerHTML=plCircOptions(PL.curCirc);} plMedRender(); }
 function plCircNombre(id,v){ var c=circById(id); if(!c)return; c.nombre=v.trim()||c.nombre; plSaveMed(); var s=document.getElementById('pl-circ'); if(s)s.innerHTML=plCircOptions(PL.curCirc); plMedRender(); }
 function plCircTipo(id,v){ var c=circById(id); if(!c)return; c.tipo=v; plSaveMed(); plMedRender(); plCanoTotals(); }
