@@ -1407,11 +1407,30 @@ function plBind(){
     document.getElementById('pl-finish').onclick=plFinishRoute;
     plApplyMode();
   }
-  var down=false,moved=false,sx=0,sy=0,stx=0,sty=0,startMk=null;
-  plStage.onpointerdown=function(e){ var mk=e.target.closest('.pl-mk'); if(mk&&PL.mode==='bocas'){startMk=mk;down=false;return;} startMk=null;down=true;moved=false;sx=e.clientX;sy=e.clientY;stx=PL.tx;sty=PL.ty; try{plStage.setPointerCapture(e.pointerId);}catch(_){} };
-  plStage.onpointermove=function(e){ if(!down)return; var dx=e.clientX-sx,dy=e.clientY-sy; if(Math.abs(dx)+Math.abs(dy)>6)moved=true; if(moved){PL.tx=stx+dx;PL.ty=sty+dy;plApplyT();} };
-  plStage.onpointerup=function(e){
-    if(startMk){ var id=startMk.dataset.id; startMk=null; plSheetOpen(id); return; }
+  var ptrs={},pinch=null,down=false,moved=false,sx=0,sy=0,stx=0,sty=0,startMk=null;
+  function _dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y);}
+  plStage.onpointerdown=function(e){
+    if(e.target.closest('.pl-zoom'))return; // dejar que los botones + / − funcionen
+    ptrs[e.pointerId]={x:e.clientX,y:e.clientY};
+    var ids=Object.keys(ptrs);
+    if(ids.length===2){
+      var a=ptrs[ids[0]],b=ptrs[ids[1]],rc=plStage.getBoundingClientRect();
+      pinch={d0:_dist(a,b)||1,s0:PL.scale,cx:((a.x+b.x)/2)-rc.left,cy:((a.y+b.y)/2)-rc.top,tx0:PL.tx,ty0:PL.ty};
+      down=false; startMk=null; moved=true; return;
+    }
+    var mk=e.target.closest('.pl-mk'); if(mk&&PL.mode==='bocas'){startMk=mk;down=false;return;}
+    startMk=null;down=true;moved=false;sx=e.clientX;sy=e.clientY;stx=PL.tx;sty=PL.ty;
+    try{plStage.setPointerCapture(e.pointerId);}catch(_){}
+  };
+  plStage.onpointermove=function(e){
+    if(ptrs[e.pointerId])ptrs[e.pointerId]={x:e.clientX,y:e.clientY};
+    if(pinch){ var ids=Object.keys(ptrs); if(ids.length<2)return; var a=ptrs[ids[0]],b=ptrs[ids[1]]; var ns=Math.max(0.2,Math.min(8,pinch.s0*(_dist(a,b)/pinch.d0))); PL.tx=pinch.cx-((pinch.cx-pinch.tx0)/pinch.s0)*ns; PL.ty=pinch.cy-((pinch.cy-pinch.ty0)/pinch.s0)*ns; PL.scale=ns; plApplyT(); return; }
+    if(!down)return; var dx=e.clientX-sx,dy=e.clientY-sy; if(Math.abs(dx)+Math.abs(dy)>6)moved=true; if(moved){PL.tx=stx+dx;PL.ty=sty+dy;plApplyT();}
+  };
+  function _up(e){
+    delete ptrs[e.pointerId];
+    if(pinch){ if(Object.keys(ptrs).length<2){pinch=null;down=false;} return; }
+    if(startMk){ var id=startMk.dataset.id; startMk=null; plSheetOpen(id); down=false; return; }
     if(down&&!moved&&PL.soc){
       var r=plImg.getBoundingClientRect(); var fx=(e.clientX-r.left)/r.width,fy=(e.clientY-r.top)/r.height;
       if(fx>=0&&fx<=1&&fy>=0&&fy<=1){
@@ -1423,7 +1442,8 @@ function plBind(){
       }
     }
     down=false;
-  };
+  }
+  plStage.onpointerup=_up; plStage.onpointercancel=_up;
 }
 
 /* ---- modo caño / cable ---- */
