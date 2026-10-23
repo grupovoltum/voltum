@@ -185,6 +185,10 @@
   .pl-sheet-row{display:flex;gap:10px}
   .pl-sheet-row .pl-btn{flex:1;justify-content:center;padding:12px}
   .pl-btn.danger{color:#ff6b6b;border-color:#5a2a2a;background:#241518}
+  .pl-modebtn{flex:1;border:1px solid #2a2a2e;background:#1b1b1d;color:#a0a6b0;border-radius:9px;padding:8px 10px;font-size:13px;font-weight:700;cursor:pointer}
+  .pl-modebtn.on{background:#12E56B;color:#04331b;border-color:#12E56B}
+  .pl-btn.on{background:#12E56B;color:#04331b;border-color:#12E56B}
+  .pl-csw:active{transform:scale(.92)}
 </style>
 </head>
 <body>
@@ -1311,7 +1315,11 @@ function abrirPlano(id){
   db.collection('planos_img').doc(id).get().then(function(doc){
     var img=doc.exists?(doc.data().img||''):'';
     var ambs=(OB.prod[meta.obraId]&&OB.prod[meta.obraId].ambientes)||[];
-    PL={id:id,oid:meta.obraId,nombre:meta.nombre,img:img,mkSize:meta.mkSize||18,tx:0,ty:0,scale:1,activeTipo:'toma',addMode:false,soc:isSocio(),ambId:(ambs[0]?ambs[0].id:'')};
+    PL={id:id,oid:meta.obraId,nombre:meta.nombre,img:img,mkSize:meta.mkSize||18,tx:0,ty:0,scale:1,activeTipo:'toma',addMode:false,soc:isSocio(),ambId:(ambs[0]?ambs[0].id:''),
+        mode:'bocas',rutas:(meta.rutas||[]),mpp:(typeof meta.mpp==='number'?meta.mpp:0),calib:(meta.calib||null),
+        bajada:(typeof meta.bajada==='number'?meta.bajada:2.7),condBajada:(typeof meta.condBajada==='number'?meta.condBajada:2),waste:(typeof meta.waste==='number'?meta.waste:10),
+        circuitos:(meta.circuitos||[]),largoRet:(typeof meta.largoRet==='number'?meta.largoRet:2.7),curCirc:'',
+        curColor:'#F43F5E',curCond:2,curRoute:null,calibMode:false,calibA:null};
     renderPlanoScreen();
   }).catch(function(e){ alert('No se pudo abrir el plano: '+e.message); });
 }
@@ -1323,25 +1331,37 @@ function plAmbOptions(){
 }
 function plSelAmb(v){
   if(v==='__new'){ var nn=prompt('Nombre del nuevo ambiente:'); if(nn===null){ document.getElementById('pl-amb').value=PL.ambId; return; } nn=nn.trim(); if(!nn){document.getElementById('pl-amb').value=PL.ambId;return;}
-    var p=getProd(PL.oid); var nid=uid(); p.ambientes.push({id:nid,nombre:nn,bocas:{},tareas:{},items:[]}); saveProd(PL.oid); PL.ambId=nid; var sel=document.getElementById('pl-amb'); sel.innerHTML=plAmbOptions(); sel.value=nid; toast('Ambiente creado'); return; }
-  PL.ambId=v;
+    var p=getProd(PL.oid); var nid=uid(); p.ambientes.push({id:nid,nombre:nn,bocas:{},tareas:{},items:[]}); saveProd(PL.oid); PL.ambId=nid; var sel=document.getElementById('pl-amb'); sel.innerHTML=plAmbOptions(); sel.value=nid; toast('Ambiente creado'); plUpdatePend(); plSetAdd(PL.addMode); return; }
+  PL.ambId=v; plUpdatePend(); plSetAdd(PL.addMode);
 }
+var CANO_COLORS=['#F43F5E','#22D3EE','#A3E635','#FB923C','#E879F9','#FACC15'];
 function renderPlanoScreen(){
   var soc=PL.soc;
   var tipos=PLANO_TIPOS.map(function(t){return '<button class="pl-chip'+(t.k===PL.activeTipo?' active':'')+'" data-k="'+t.k+'" style="'+(t.k===PL.activeTipo?'color:'+t.c:'')+'"><span class="sw" style="background:'+t.c+'"></span>'+t.n+'</button>';}).join('');
-  var tbar = soc ? ('<div class="pl-tbar"><div class="pl-tipos" id="pl-tipos">'+tipos+'</div>'+
+  var modeTog = soc ? ('<div class="pl-row" style="gap:6px"><button class="pl-modebtn" id="pl-mode-bocas" onclick="plSetMode(\'bocas\')">Bocas</button><button class="pl-modebtn" id="pl-mode-cano" onclick="plSetMode(\'cano\')">Caño / cable</button></div>') : '';
+  var tbarBocas = soc ? ('<div id="pl-tbar-bocas"><div class="pl-tipos" id="pl-tipos">'+tipos+'</div>'+
       '<div class="pl-row" style="gap:10px"><span style="font-size:12px;color:#a0a6b0;white-space:nowrap">Ambiente</span><select id="pl-amb" onchange="plSelAmb(this.value)" style="flex:1;min-width:0;background:#1b1b1d;color:#f3f4f6;border:1px solid #2a2a2e;border-radius:9px;padding:7px 9px;font-size:13px">'+plAmbOptions()+'</select></div>'+
+      '<div class="pl-tipos" id="pl-pend" style="align-items:center"></div>'+
       '<div class="pl-row"><div class="pl-sw" id="pl-addSw"><span class="pl-track"><span class="pl-knob"></span></span><span>Agregar bocas</span></div><span class="pl-hint" id="pl-hint">Tocá una boca para ver su checklist</span></div>'+
       '<div class="pl-row" style="gap:12px"><span style="font-size:12px;color:#a0a6b0;white-space:nowrap">Tamaño</span><input type="range" min="9" max="34" value="'+PL.mkSize+'" id="pl-size" style="flex:1;accent-color:#12E56B"></div></div>') : '';
+  var tbarCano = soc ? ('<div id="pl-tbar-cano" style="display:none">'+
+      '<div class="pl-row" style="gap:8px"><span class="pl-hint" id="pl-escala">Escala: —</span><button class="pl-btn sm" id="pl-calib">Calibrar escala</button></div>'+
+      '<div class="pl-row" style="gap:8px"><span style="font-size:12px;color:#a0a6b0;white-space:nowrap">Circuito</span><select id="pl-circ" onchange="plSelCirc(this.value)" style="flex:1;min-width:0;background:#1b1b1d;color:#f3f4f6;border:1px solid #2a2a2e;border-radius:9px;padding:7px 9px;font-size:13px">'+plCircOptions(PL.curCirc)+'</select><span style="font-size:12px;color:#a0a6b0">Cond.</span><input type="number" min="1" max="20" value="'+PL.curCond+'" id="pl-cond" style="width:50px;background:#1b1b1d;color:#f3f4f6;border:1px solid #2a2a2e;border-radius:8px;padding:6px 8px;font-size:13px"></div>'+
+      '<div class="pl-row"><div class="pl-sw" id="pl-drawSw"><span class="pl-track"><span class="pl-knob"></span></span><span>Dibujar caño</span></div><span class="pl-hint" id="pl-drawhint"></span></div>'+
+      '<div class="pl-row" style="gap:6px"><button class="pl-btn sm" id="pl-undo">↶ Deshacer</button><button class="pl-btn sm primary" id="pl-finish">Terminar ruta</button><button class="pl-btn sm" style="margin-left:auto" onclick="plOpenMed()">📐 Medición</button></div>'+
+    '</div>') : '';
   var html=''+
     '<div class="pl-head"><button class="pl-btn sm" onclick="cerrarPlano()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg></button>'+
       '<div class="pl-title">'+esc(PL.nombre)+'</div>'+
       (soc?'<button class="pl-btn sm" onclick="renombrarPlano()">✎</button><button class="pl-btn sm danger" onclick="borrarPlano()">🗑</button>':'')+
-    '</div>'+tbar+
-    '<div class="pl-stage" id="pl-stage"><div class="pl-canvas" id="pl-canvas"><img id="pl-img" alt="plano"><div id="pl-overlay"></div></div>'+
+    '</div>'+
+    (soc?('<div class="pl-tbar">'+modeTog+tbarBocas+tbarCano+'</div>'):'')+
+    '<div class="pl-stage" id="pl-stage"><div class="pl-canvas" id="pl-canvas"><img id="pl-img" alt="plano"><svg id="pl-svg" preserveAspectRatio="none" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible"></svg><div id="pl-overlay"></div></div>'+
       '<div class="pl-zoom"><button id="pl-zin">+</button><button id="pl-zout">−</button><button class="fit" id="pl-zfit">Ajustar</button></div></div>'+
-    '<div class="pl-counts"><div class="pl-totline"><span id="pl-tot">—</span></div><div class="pl-bar"><div id="pl-barfill"></div></div><div class="pl-legend" id="pl-legend"></div></div>'+
-    '<div class="pl-sheet" id="pl-sheet"><div class="pl-sheet-in" id="pl-sheet-in"></div></div>';
+    '<div class="pl-counts" id="pl-bottom-bocas"><div class="pl-totline"><span id="pl-tot">—</span></div><div class="pl-bar"><div id="pl-barfill"></div></div><div class="pl-legend" id="pl-legend"></div></div>'+
+    '<div class="pl-counts" id="pl-bottom-cano" style="display:none"><div class="pl-totline"><span id="pl-cano-tot" style="font-weight:700;color:#fff">—</span><button class="pl-btn sm" onclick="plOpenMed()">Detalle</button></div><div class="pl-legend" id="pl-cano-legend"></div></div>'+
+    '<div class="pl-sheet" id="pl-sheet"><div class="pl-sheet-in" id="pl-sheet-in"></div></div>'+
+    '<div class="pl-sheet" id="pl-med"><div class="pl-sheet-in" id="pl-med-in" style="max-height:80vh;overflow:auto"></div></div>';
   var scr=document.getElementById('planoScreen'); scr.innerHTML=html; scr.classList.remove('hidden');
   plBind();
 }
@@ -1360,39 +1380,203 @@ function plRenderCounts(){
   var lg=PLANO_TIPOS.filter(function(t){return per[t.k]>0;}).map(function(t){return '<div class="pl-lg"><span class="sw" style="background:'+t.c+'"></span>'+t.n+' <b>'+perDone[t.k]+'/'+per[t.k]+'</b></div>';}).join('');
   var le=document.getElementById('pl-legend'); if(le)le.innerHTML=lg||'<div class="pl-lg" style="color:#6b7280">Sin bocas en este plano</div>';
 }
-function plRefreshFromProd(){ if(!planoOpen())return; plRenderMarkers(); plRenderCounts(); if(document.getElementById('pl-sheet').classList.contains('open')&&_plOpenMk)plSheetRender(); }
+function plRefreshFromProd(){ if(!planoOpen())return; plRenderMarkers(); plRenderCounts(); if(document.getElementById('pl-sheet').classList.contains('open')&&_plOpenMk)plSheetRender(); plUpdatePend(); plCanoTotals(); if(document.getElementById('pl-med').classList.contains('open'))plMedRender(); }
 
-function plSetAdd(on){ PL.addMode=on; var sw=document.getElementById('pl-addSw'); if(sw)sw.classList.toggle('on',on); var h=document.getElementById('pl-hint'); if(h)h.textContent=on?('Tocá el plano: '+pTipo(PL.activeTipo).n+' en '+(plAmbNombre(PL.ambId)||'—')):'Tocá una boca para ver su checklist'; }
+function plSetAdd(on){ PL.addMode=on; var sw=document.getElementById('pl-addSw'); if(sw)sw.classList.toggle('on',on); var h=document.getElementById('pl-hint'); if(h){ if(on){ var n=unplacedIn(PL.ambId,PL.activeTipo).length; h.textContent='Tocá el plano: '+pTipo(PL.activeTipo).n+(n?(' · '+n+' sin ubicar'):' · se crea nueva'); } else { h.textContent='Tocá una boca para ver su checklist'; } } }
 function plAmbNombre(id){ var a=plAmbs().find(function(x){return x.id===id;}); return a?a.nombre:''; }
+function unplacedIn(ambId,tipo){ var a=plAmbs().find(function(x){return x.id===ambId;}); if(!a)return []; return (a.items||[]).filter(function(it){return it.planoId==null && (!tipo||it.tipo===tipo);}); }
+function plPickTipo(k){ PL.activeTipo=k; var tp=document.getElementById('pl-tipos'); if(tp)Array.prototype.forEach.call(tp.children,function(x){x.classList.toggle('active',x.dataset.k===k);x.style.color=(x.dataset.k===k)?pTipo(x.dataset.k).c:'';}); plSetAdd(true); plUpdatePend(); }
+function plUpdatePend(){ var el=document.getElementById('pl-pend'); if(!el)return; var a=plAmbs().find(function(x){return x.id===PL.ambId;}); if(!a){el.innerHTML='';return;} var cnt={}; (a.items||[]).forEach(function(it){ if(it.planoId==null)cnt[it.tipo]=(cnt[it.tipo]||0)+1; }); var chips=PLANO_TIPOS.filter(function(t){return cnt[t.k];}).map(function(t){return '<button class="pl-chip" onclick="plPickTipo(\''+t.k+'\')" style="'+(t.k===PL.activeTipo?'border-color:'+t.c+';color:'+t.c:'')+'"><span class="sw" style="background:'+t.c+'"></span>'+t.n+' '+cnt[t.k]+'</button>';}).join(''); el.innerHTML=chips?('<span style="font-size:11px;color:#a0a6b0;white-space:nowrap">Sin ubicar →</span>'+chips):'<span style="font-size:11px;color:#6b7280">Todas las bocas de '+esc(a.nombre)+' están ubicadas.</span>'; }
 
 function plBind(){
   plImg=document.getElementById('pl-img'); plCanvas=document.getElementById('pl-canvas'); plStage=document.getElementById('pl-stage'); plOverlay=document.getElementById('pl-overlay');
-  plImg.onload=function(){ plApplyT(); plFit(); plRenderMarkers(); plRenderCounts(); };
+  plImg.onload=function(){ plApplyT(); plFit(); plRenderMarkers(); plRenderCounts(); plRenderRutas(); };
   plImg.src=PL.img;
   document.getElementById('pl-zin').onclick=function(){var r=plStage.getBoundingClientRect();plZoom(r.width/2,r.height/2,1.3);};
   document.getElementById('pl-zout').onclick=function(){var r=plStage.getBoundingClientRect();plZoom(r.width/2,r.height/2,1/1.3);};
   document.getElementById('pl-zfit').onclick=plFit;
   if(PL.soc){
-    Array.prototype.forEach.call(document.getElementById('pl-tipos').children,function(b){ b.onclick=function(){ PL.activeTipo=b.dataset.k; if(!PL.addMode)plSetAdd(true); Array.prototype.forEach.call(document.getElementById('pl-tipos').children,function(x){x.classList.toggle('active',x.dataset.k===PL.activeTipo);x.style.color=(x.dataset.k===PL.activeTipo)?pTipo(x.dataset.k).c:'';}); plSetAdd(PL.addMode); }; });
+    Array.prototype.forEach.call(document.getElementById('pl-tipos').children,function(b){ b.onclick=function(){ PL.activeTipo=b.dataset.k; if(!PL.addMode)plSetAdd(true); Array.prototype.forEach.call(document.getElementById('pl-tipos').children,function(x){x.classList.toggle('active',x.dataset.k===PL.activeTipo);x.style.color=(x.dataset.k===PL.activeTipo)?pTipo(x.dataset.k).c:'';}); plSetAdd(PL.addMode); plUpdatePend(); }; });
     document.getElementById('pl-addSw').onclick=function(){ plSetAdd(!PL.addMode); };
     document.getElementById('pl-size').oninput=function(){ PL.mkSize=+this.value; plApplyT(); db.collection('planos').doc(PL.id).set({mkSize:PL.mkSize},{merge:true}); };
-    plSetAdd(false);
+    plSetAdd(false); plUpdatePend();
+    // caño
+    document.getElementById('pl-calib').onclick=function(){ PL.calibMode=!PL.calibMode; PL.calibA=null; if(PL.calibMode){plSetDraw(false);} plCanoHint(); };
+    document.getElementById('pl-cond').oninput=function(){ PL.curCond=Math.max(1,parseInt(this.value)||1); if(PL.curRoute)PL.curRoute.cond=PL.curCond; };
+    document.getElementById('pl-drawSw').onclick=function(){ plSetDraw(!PL.drawMode); };
+    document.getElementById('pl-undo').onclick=function(){ if(PL.curRoute&&PL.curRoute.pts.length){ PL.curRoute.pts.pop(); plRenderRutas(); } };
+    document.getElementById('pl-finish').onclick=plFinishRoute;
+    plApplyMode();
   }
   var down=false,moved=false,sx=0,sy=0,stx=0,sty=0,startMk=null;
-  plStage.onpointerdown=function(e){ var mk=e.target.closest('.pl-mk'); if(mk){startMk=mk;down=false;return;} startMk=null;down=true;moved=false;sx=e.clientX;sy=e.clientY;stx=PL.tx;sty=PL.ty; try{plStage.setPointerCapture(e.pointerId);}catch(_){} };
+  plStage.onpointerdown=function(e){ var mk=e.target.closest('.pl-mk'); if(mk&&PL.mode==='bocas'){startMk=mk;down=false;return;} startMk=null;down=true;moved=false;sx=e.clientX;sy=e.clientY;stx=PL.tx;sty=PL.ty; try{plStage.setPointerCapture(e.pointerId);}catch(_){} };
   plStage.onpointermove=function(e){ if(!down)return; var dx=e.clientX-sx,dy=e.clientY-sy; if(Math.abs(dx)+Math.abs(dy)>6)moved=true; if(moved){PL.tx=stx+dx;PL.ty=sty+dy;plApplyT();} };
   plStage.onpointerup=function(e){
     if(startMk){ var id=startMk.dataset.id; startMk=null; plSheetOpen(id); return; }
-    if(down&&!moved&&PL.soc&&PL.addMode){
+    if(down&&!moved&&PL.soc){
       var r=plImg.getBoundingClientRect(); var fx=(e.clientX-r.left)/r.width,fy=(e.clientY-r.top)/r.height;
       if(fx>=0&&fx<=1&&fy>=0&&fy<=1){
-        var p=getProd(PL.oid); if(!PL.ambId){ if(!p.ambientes.length){var nid=uid();p.ambientes.push({id:nid,nombre:'General',bocas:{},tareas:{},items:[]});PL.ambId=nid;} else PL.ambId=p.ambientes[0].id; var sel=document.getElementById('pl-amb'); if(sel){sel.innerHTML=plAmbOptions();sel.value=PL.ambId;} }
-        var a=p.ambientes.find(function(x){return x.id===PL.ambId;}); if(a){ ambItems(a).push({id:uid(),tipo:PL.activeTipo,chk:{},planoId:PL.id,x:fx,y:fy}); saveProd(PL.oid); plRenderMarkers(); plRenderCounts(); }
+        if(PL.mode==='cano'){ plCanoTap(fx,fy); }
+        else if(PL.addMode){
+          var p=getProd(PL.oid); if(!PL.ambId){ if(!p.ambientes.length){var nid=uid();p.ambientes.push({id:nid,nombre:'General',bocas:{},tareas:{},items:[]});PL.ambId=nid;} else PL.ambId=p.ambientes[0].id; var sel=document.getElementById('pl-amb'); if(sel){sel.innerHTML=plAmbOptions();sel.value=PL.ambId;} }
+          var a=p.ambientes.find(function(x){return x.id===PL.ambId;}); if(a){ var un=ambItems(a).find(function(it){return it.planoId==null && it.tipo===PL.activeTipo;}); if(un){ un.planoId=PL.id; un.x=fx; un.y=fy; } else { ambItems(a).push({id:uid(),tipo:PL.activeTipo,chk:{},planoId:PL.id,x:fx,y:fy}); } saveProd(PL.oid); plRenderMarkers(); plRenderCounts(); plUpdatePend(); plSetAdd(true); }
+        }
       }
     }
     down=false;
   };
 }
+
+/* ---- modo caño / cable ---- */
+function plSetMode(m){ PL.mode=m; if(m!=='cano'){PL.calibMode=false;plSetDraw(false);} plApplyMode(); }
+function plApplyMode(){
+  var tb=document.getElementById('pl-tbar-bocas'), tc=document.getElementById('pl-tbar-cano'), bb=document.getElementById('pl-bottom-bocas'), bc=document.getElementById('pl-bottom-cano');
+  var mb=document.getElementById('pl-mode-bocas'), mc=document.getElementById('pl-mode-cano');
+  var cano=PL.mode==='cano';
+  if(tb)tb.style.display=cano?'none':''; if(tc)tc.style.display=cano?'':'none';
+  if(bb)bb.style.display=cano?'none':''; if(bc)bc.style.display=cano?'':'none';
+  if(mb)mb.classList.toggle('on',!cano); if(mc)mc.classList.toggle('on',cano);
+  plEscalaTxt(); plCanoHint(); plRenderRutas(); plCanoTotals();
+}
+function plEscalaTxt(){ var el=document.getElementById('pl-escala'); if(!el)return; el.textContent=PL.mpp>0?('Escala: '+(PL.calib?(PL.calib.m+' m de referencia ✓'):'calibrada ✓')):'⚠ Escala sin calibrar'; el.style.color=PL.mpp>0?'#12E56B':'#FB923C'; }
+function plCanoHint(){ var h=document.getElementById('pl-drawhint'); var cb=document.getElementById('pl-calib'); if(cb)cb.classList.toggle('on',PL.calibMode); if(!h)return; if(PL.calibMode){ h.textContent=PL.calibA?'Tocá el 2º punto de la pared':'Tocá el 1º punto de una pared conocida'; } else if(PL.drawMode){ h.textContent='Tocá para marcar el recorrido ('+(PL.curRoute?PL.curRoute.pts.length:0)+' pts)'; } else { h.textContent=''; } }
+function plSetDraw(on){ PL.drawMode=on; var sw=document.getElementById('pl-drawSw'); if(sw)sw.classList.toggle('on',on); if(on){ PL.calibMode=false; if(!PL.curRoute)PL.curRoute={id:uid(),color:PL.curColor,cond:PL.curCond,circuitoId:(PL.curCirc||null),pts:[]}; } plCanoHint(); }
+function plFinishRoute(){ if(PL.curRoute&&PL.curRoute.pts.length>=2){ PL.rutas.push(PL.curRoute); plSaveMed(); toast('Ruta guardada'); } PL.curRoute=null; plSetDraw(false); plRenderRutas(); plCanoTotals(); plCanoHint(); }
+function plCanoTap(fx,fy){
+  if(PL.calibMode){
+    if(!PL.calibA){ PL.calibA={x:fx,y:fy}; plCanoHint(); plRenderRutas(); return; }
+    var b={x:fx,y:fy}; var m=prompt('¿Cuántos metros mide esa pared? (ej: 4.2)'); if(m===null){ return; }
+    m=parseFloat((m||'').replace(',','.')); if(!(m>0)){ toast('Poné un número válido'); return; }
+    var iw=plImg.naturalWidth||1, ih=plImg.naturalHeight||1;
+    var px=Math.sqrt(Math.pow((b.x-PL.calibA.x)*iw,2)+Math.pow((b.y-PL.calibA.y)*ih,2));
+    if(px<=0){ toast('Línea muy corta'); return; }
+    PL.mpp=m/px; PL.calib={a:PL.calibA,b:b,m:m}; PL.calibMode=false; PL.calibA=null;
+    plSaveMed(); plEscalaTxt(); plCanoHint(); plRenderRutas(); plCanoTotals(); toast('Escala calibrada');
+    return;
+  }
+  if(PL.drawMode){ if(!PL.curRoute)PL.curRoute={id:uid(),color:PL.curColor,cond:PL.curCond,circuitoId:(PL.curCirc||null),pts:[]}; PL.curRoute.pts.push({x:fx,y:fy}); plRenderRutas(); plCanoHint(); plCanoTotals(); }
+}
+function routeLenM(r){ if(!(PL.mpp>0))return 0; var iw=plImg.naturalWidth||1, ih=plImg.naturalHeight||1, s=0; for(var i=1;i<r.pts.length;i++){ var a=r.pts[i-1],b=r.pts[i]; s+=Math.sqrt(Math.pow((b.x-a.x)*iw,2)+Math.pow((b.y-a.y)*ih,2)); } return s*PL.mpp; }
+function plRenderRutas(){
+  var svg=document.getElementById('pl-svg'); if(!svg||!plImg)return;
+  var iw=plImg.naturalWidth||1, ih=plImg.naturalHeight||1;
+  svg.setAttribute('viewBox','0 0 '+iw+' '+ih);
+  var parts=[];
+  function poly(pts,color,dash){ if(pts.length<2)return ''; var d='M'+pts.map(function(p){return (p.x*iw)+' '+(p.y*ih);}).join(' L'); return '<path d="'+d+'" fill="none" stroke="'+color+'" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"'+(dash?' stroke-dasharray="6 5"':'')+'/>'; }
+  function dots(pts,color){ return pts.map(function(p){return '<circle cx="'+(p.x*iw)+'" cy="'+(p.y*ih)+'" r="'+(iw/180)+'" fill="'+color+'" stroke="#fff" stroke-width="1.5" vector-effect="non-scaling-stroke"/>';}).join(''); }
+  PL.rutas.forEach(function(r){ parts.push(poly(r.pts,r.color||'#F43F5E')); });
+  if(PL.curRoute){ parts.push(poly(PL.curRoute.pts,PL.curRoute.color||PL.curColor)); parts.push(dots(PL.curRoute.pts,PL.curRoute.color||PL.curColor)); }
+  if(PL.calib){ parts.push(poly([PL.calib.a,PL.calib.b],'#12E56B',true)); }
+  if(PL.calibMode&&PL.calibA){ parts.push(dots([PL.calibA],'#12E56B')); }
+  svg.innerHTML=parts.join('');
+}
+function plMedTotals(){
+  var routesLen=0, cableRoutes=0;
+  PL.rutas.forEach(function(r){ var L=routeLenM(r); routesLen+=L; cableRoutes+=L*(r.cond||1); });
+  var nBocas=planoItemsDe(PL.oid,PL.id).length;
+  var bajTot=nBocas*(PL.bajada||0);
+  var retN=0; (PL.circuitos||[]).forEach(function(c){ retN+=circRetornos(c); });
+  var retTot=retN*(PL.largoRet||0);
+  var w=1+((PL.waste||0)/100);
+  var cano=(routesLen+bajTot)*w;
+  var cable=(cableRoutes + nBocas*(PL.bajada||0)*(PL.condBajada||0) + retTot)*w;
+  return {routesLen:routesLen,cableRoutes:cableRoutes,nBocas:nBocas,bajTot:bajTot,retN:retN,retTot:retTot,cano:cano,cable:cable};
+}
+function circData(c){
+  var routes=PL.rutas.filter(function(r){return r.circuitoId===c.id;});
+  var bocas=planoItemsDe(PL.oid,PL.id).filter(function(r){return r.item.circuitoId===c.id;});
+  var rLen=0,cableR=0; routes.forEach(function(r){var L=routeLenM(r);rLen+=L;cableR+=L*(r.cond||1);});
+  var nB=bocas.length, baj=nB*(PL.bajada||0), cableBaj=nB*(PL.bajada||0)*(PL.condBajada||0);
+  var ret=circRetornos(c), cableRet=ret*(PL.largoRet||0);
+  var w=1+((PL.waste||0)/100);
+  return {routes:routes.length,nB:nB,rLen:rLen,ret:ret,cano:(rLen+baj)*w,cable:(cableR+cableBaj+cableRet)*w};
+}
+function m1(x){ return (Math.round(x*10)/10).toLocaleString('es-AR'); }
+function plCanoTotals(){
+  var el=document.getElementById('pl-cano-tot'), lg=document.getElementById('pl-cano-legend'); if(!el)return;
+  if(!(PL.mpp>0)){ el.textContent='Calibrá la escala para medir'; el.style.color='#FB923C'; if(lg)lg.innerHTML=''; return; }
+  var t=plMedTotals(); el.style.color='#fff';
+  el.textContent='Caño: '+m1(t.cano)+' m · Cable: '+m1(t.cable)+' m';
+  if(lg)lg.innerHTML='<div class="pl-lg">Recorrido '+m1(t.routesLen)+' m</div><div class="pl-lg">Bajadas '+m1(t.bajTot)+' m</div><div class="pl-lg">Retornos '+t.retN+'</div><div class="pl-lg">Desperdicio '+(PL.waste||0)+'%</div>';
+}
+function plSaveMed(){ db.collection('planos').doc(PL.id).set({rutas:PL.rutas,mpp:PL.mpp,calib:PL.calib,bajada:PL.bajada,condBajada:PL.condBajada,waste:PL.waste,circuitos:PL.circuitos,largoRet:PL.largoRet},{merge:true}).catch(function(e){toast('Error al guardar medición');}); }
+/* ---- circuitos ---- */
+var LIGHT_TIPOS=['luz','losa','aplique'];
+function circById(id){ return (PL.circuitos||[]).find(function(c){return c.id===id;}); }
+function circNombre(id){ var c=circById(id); return c?c.nombre:'Sin circuito'; }
+function circColor(id){ var c=circById(id); return c?(c.color||'#9CA3AF'):'#9CA3AF'; }
+function nuevoCircuito(nombre,tipo){ var id=uid(); var col=CANO_COLORS[(PL.circuitos.length)%CANO_COLORS.length]; var c={id:id,nombre:nombre||('Circuito '+(PL.circuitos.length+1)),tipo:tipo||'luz',color:col,prot:'',ret:null}; PL.circuitos.push(c); plSaveMed(); return c; }
+function circRetornos(c){ if(c.ret!=null) return c.ret; var bocas=planoItemsDe(PL.oid,PL.id).filter(function(r){return r.item.circuitoId===c.id;}); return bocas.filter(function(r){return LIGHT_TIPOS.indexOf(r.item.tipo)>=0;}).length; }
+function plCircOptions(sel){ return '<option value="">Sin circuito</option>'+(PL.circuitos||[]).map(function(c){return '<option value="'+c.id+'"'+(sel===c.id?' selected':'')+'>'+esc(c.nombre)+'</option>';}).join('')+'<option value="__new">+ Nuevo circuito…</option>'; }
+function plSelCirc(v){
+  if(v==='__new'){ var nn=prompt('Nombre del circuito (ej: Tomas cocina, Iluminación living):'); if(nn===null){ document.getElementById('pl-circ').value=PL.curCirc; return; } nn=nn.trim(); if(!nn){document.getElementById('pl-circ').value=PL.curCirc;return;} var c=nuevoCircuito(nn,'luz'); PL.curCirc=c.id; PL.curColor=c.color; var s=document.getElementById('pl-circ'); s.innerHTML=plCircOptions(PL.curCirc); s.value=PL.curCirc; toast('Circuito creado'); if(PL.curRoute)PL.curRoute.circuitoId=c.id; return; }
+  PL.curCirc=v; var cc=circById(v); if(cc){ PL.curColor=cc.color||PL.curColor; } if(PL.curRoute){PL.curRoute.circuitoId=v||null;PL.curRoute.color=PL.curColor;plRenderRutas();}
+}
+function plOpenMed(){ plMedRender(); document.getElementById('pl-med').classList.add('open'); }
+function plMedClose(){ document.getElementById('pl-med').classList.remove('open'); }
+var _mIn='width:70px;background:#1b1b1d;color:#f3f4f6;border:1px solid #2a2a2e;border-radius:8px;padding:6px 8px;font-size:13px;text-align:right';
+function plCircOptsPlain(sel){ return '<option value="">Sin circuito</option>'+(PL.circuitos||[]).map(function(c){return '<option value="'+c.id+'"'+(sel===c.id?' selected':'')+'>'+esc(c.nombre)+'</option>';}).join(''); }
+var _selIn='background:#111;color:#f3f4f6;border:1px solid #2a2a2e;border-radius:8px;padding:6px 8px;font-size:12.5px';
+function plMedRender(){
+  var t=plMedTotals();
+  var h='<div class="pl-sheet-h"><b>Medición de materiales</b><button class="pl-btn sm" style="margin-left:auto" onclick="plMedClose()">Cerrar</button></div>';
+  if(!(PL.mpp>0)) h+='<div style="color:#FB923C;font-size:12.5px;margin-bottom:12px;line-height:1.4">⚠ Primero calibrá la escala con el botón "Calibrar escala" para que las medidas sean reales.</div>';
+  h+='<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">'+
+    '<div class="pl-row"><span style="flex:1;font-size:13px;color:#cfd3da">Bajada por boca (m)</span><input type="number" step="0.1" min="0" value="'+PL.bajada+'" id="med-bajada" style="'+_mIn+'"></div>'+
+    '<div class="pl-row"><span style="flex:1;font-size:13px;color:#cfd3da">Conductores por bajada</span><input type="number" step="1" min="0" value="'+PL.condBajada+'" id="med-cond" style="'+_mIn+'"></div>'+
+    '<div class="pl-row"><span style="flex:1;font-size:13px;color:#cfd3da">Largo de retorno (m)</span><input type="number" step="0.1" min="0" value="'+PL.largoRet+'" id="med-ret" style="'+_mIn+'"></div>'+
+    '<div class="pl-row"><span style="flex:1;font-size:13px;color:#cfd3da">Desperdicio (%)</span><input type="number" step="1" min="0" value="'+PL.waste+'" id="med-waste" style="'+_mIn+'"></div>'+
+  '</div>';
+  // circuitos
+  h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#6b7280">Circuitos</div><button class="pl-btn sm" onclick="plNuevoCirc()">+ Circuito</button></div>';
+  if(!PL.circuitos.length) h+='<div style="color:#6b7280;font-size:13px;padding:2px 0 10px">Creá circuitos para agrupar bocas y rutas. El retorno (iluminación) se estima por cada punto de luz asignado al circuito.</div>';
+  else h+=PL.circuitos.map(function(c){ var cd=circData(c); var tipos=[['toma','Toma'],['luz','Luz'],['especial','Especial']];
+    return '<div style="border:1px solid #2a2a2e;border-radius:10px;padding:10px;margin-bottom:8px">'+
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="width:16px;height:16px;border-radius:50%;background:'+c.color+';flex-shrink:0;cursor:pointer" title="Cambiar color" onclick="plCircColor(\''+c.id+'\')"></span>'+
+        '<input value="'+esc(c.nombre)+'" onchange="plCircNombre(\''+c.id+'\',this.value)" style="flex:1;min-width:0;background:transparent;border:none;color:#f3f4f6;font-weight:700;font-size:14px">'+
+        '<button class="pl-btn sm danger" style="padding:4px 8px" onclick="plDelCirc(\''+c.id+'\')">✕</button></div>'+
+      '<div class="pl-row" style="gap:6px;margin-bottom:7px"><select onchange="plCircTipo(\''+c.id+'\',this.value)" style="'+_selIn+'">'+tipos.map(function(tp){return '<option value="'+tp[0]+'"'+(c.tipo===tp[0]?' selected':'')+'>'+tp[1]+'</option>';}).join('')+'</select>'+
+        '<input placeholder="Protección (ej: 16A)" value="'+esc(c.prot||'')+'" onchange="plCircProt(\''+c.id+'\',this.value)" style="flex:1;min-width:0;'+_selIn+'">'+
+        '<span style="font-size:12px;color:#a0a6b0;white-space:nowrap">Ret.</span><input type="number" min="0" placeholder="'+circRetornos(c)+'" value="'+(c.ret!=null?c.ret:'')+'" onchange="plCircRet(\''+c.id+'\',this.value)" title="Retornos (vacío = automático)" style="width:46px;'+_selIn+';text-align:right"></div>'+
+      '<div style="display:flex;gap:10px;font-size:12px;color:#a0a6b0;flex-wrap:wrap"><span>'+cd.nB+' bocas · '+cd.routes+' rutas · '+cd.ret+' ret.</span><span style="margin-left:auto">Caño <b style="color:#12E56B">'+m1(cd.cano)+'m</b> · Cable <b style="color:#22D3EE">'+m1(cd.cable)+'m</b></span></div>'+
+    '</div>'; }).join('');
+  // rutas
+  if(PL.rutas.length){
+    h+='<div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#6b7280;margin:8px 0 2px">Recorridos ('+PL.rutas.length+')</div>';
+    h+=PL.rutas.map(function(r,i){ var L=routeLenM(r); return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid #2a2a2e">'+
+      '<span style="width:12px;height:12px;border-radius:50%;background:'+(r.color||'#F43F5E')+';flex-shrink:0"></span>'+
+      '<select onchange="plRutaCirc('+i+',this.value)" style="flex:1;min-width:0;'+_selIn+'">'+plCircOptsPlain(r.circuitoId)+'</select>'+
+      '<input type="number" min="1" value="'+(r.cond||1)+'" onchange="plRutaCond('+i+',this.value)" title="conductores" style="width:44px;'+_selIn+';text-align:right">'+
+      '<span style="font-family:\'Space Grotesk\';font-weight:700;white-space:nowrap">'+m1(L)+'m</span>'+
+      '<button class="pl-btn sm danger" style="padding:4px 7px" onclick="plDelRuta('+i+')">✕</button></div>';
+    }).join('');
+  }
+  // totales
+  h+='<div style="margin-top:16px;border-top:2px solid #2a2a2e;padding-top:12px">'+
+    '<div style="display:flex;justify-content:space-between;font-size:13px;color:#a0a6b0;padding:3px 0">Recorrido de caño<span>'+m1(t.routesLen)+' m</span></div>'+
+    '<div style="display:flex;justify-content:space-between;font-size:13px;color:#a0a6b0;padding:3px 0">Bajadas ('+t.nBocas+' bocas × '+m1(PL.bajada)+' m)<span>'+m1(t.bajTot)+' m</span></div>'+
+    '<div style="display:flex;justify-content:space-between;font-size:13px;color:#a0a6b0;padding:3px 0">Retornos ('+t.retN+' × '+m1(PL.largoRet)+' m)<span>'+m1(t.retTot)+' m cable</span></div>'+
+    '<div style="display:flex;justify-content:space-between;font-size:13px;color:#a0a6b0;padding:3px 0">Desperdicio<span>'+(PL.waste||0)+'%</span></div>'+
+    '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:8px"><span style="font-weight:700">CAÑO TOTAL</span><span style="font-family:\'Space Grotesk\';font-weight:800;font-size:22px;color:#12E56B">'+m1(t.cano)+' m</span></div>'+
+    '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:4px"><span style="font-weight:700">CABLE ESTIMADO</span><span style="font-family:\'Space Grotesk\';font-weight:800;font-size:22px;color:#22D3EE">'+m1(t.cable)+' m</span></div>'+
+    '<div style="font-size:11px;color:#6b7280;margin-top:6px">Cable = Σ(largo × conductores) de cada ruta + bajadas + retornos de iluminación, más desperdicio.</div>'+
+  '</div>';
+  document.getElementById('pl-med-in').innerHTML=h;
+  var bj=document.getElementById('med-bajada'); if(bj)bj.onchange=function(){PL.bajada=Math.max(0,parseFloat(this.value.replace(',','.'))||0);plSaveMed();plMedRender();plCanoTotals();};
+  var cd=document.getElementById('med-cond'); if(cd)cd.onchange=function(){PL.condBajada=Math.max(0,parseInt(this.value)||0);plSaveMed();plMedRender();plCanoTotals();};
+  var rt=document.getElementById('med-ret'); if(rt)rt.onchange=function(){PL.largoRet=Math.max(0,parseFloat(this.value.replace(',','.'))||0);plSaveMed();plMedRender();plCanoTotals();};
+  var ws=document.getElementById('med-waste'); if(ws)ws.onchange=function(){PL.waste=Math.max(0,parseFloat(this.value.replace(',','.'))||0);plSaveMed();plMedRender();plCanoTotals();};
+}
+function plNuevoCirc(){ var nn=prompt('Nombre del circuito:'); if(nn===null)return; nn=nn.trim(); if(!nn)return; nuevoCircuito(nn,'luz'); var s=document.getElementById('pl-circ'); if(s){s.innerHTML=plCircOptions(PL.curCirc);} plMedRender(); }
+function plCircNombre(id,v){ var c=circById(id); if(!c)return; c.nombre=v.trim()||c.nombre; plSaveMed(); var s=document.getElementById('pl-circ'); if(s)s.innerHTML=plCircOptions(PL.curCirc); plMedRender(); }
+function plCircTipo(id,v){ var c=circById(id); if(!c)return; c.tipo=v; plSaveMed(); plMedRender(); plCanoTotals(); }
+function plCircProt(id,v){ var c=circById(id); if(!c)return; c.prot=v.trim(); plSaveMed(); }
+function plCircRet(id,v){ var c=circById(id); if(!c)return; v=(v||'').trim(); c.ret=(v===''?null:Math.max(0,parseInt(v)||0)); plSaveMed(); plMedRender(); plCanoTotals(); }
+function plCircColor(id){ var c=circById(id); if(!c)return; var i=CANO_COLORS.indexOf(c.color); c.color=CANO_COLORS[(i+1)%CANO_COLORS.length]; PL.rutas.forEach(function(r){if(r.circuitoId===id)r.color=c.color;}); if(PL.curCirc===id)PL.curColor=c.color; plSaveMed(); plRenderRutas(); plMedRender(); }
+function plDelCirc(id){ if(!confirm('¿Borrar este circuito? Las rutas y bocas quedan sin circuito.'))return; PL.circuitos=PL.circuitos.filter(function(c){return c.id!==id;}); PL.rutas.forEach(function(r){if(r.circuitoId===id)r.circuitoId=null;}); var p=getProd(PL.oid); (p.ambientes||[]).forEach(function(a){(a.items||[]).forEach(function(it){if(it.circuitoId===id)it.circuitoId=null;});}); saveProd(PL.oid); if(PL.curCirc===id)PL.curCirc=''; plSaveMed(); var s=document.getElementById('pl-circ'); if(s)s.innerHTML=plCircOptions(PL.curCirc); plRenderRutas(); plMedRender(); plCanoTotals(); }
+function plRutaCirc(i,v){ var r=PL.rutas[i]; if(!r)return; r.circuitoId=v||null; var cc=circById(v); if(cc)r.color=cc.color; plSaveMed(); plRenderRutas(); plMedRender(); plCanoTotals(); }
+function plRutaCond(i,v){ var r=PL.rutas[i]; if(!r)return; r.cond=Math.max(1,parseInt(v)||1); plSaveMed(); plMedRender(); plCanoTotals(); }
+function plDelRuta(i){ if(!confirm('¿Borrar esta ruta de caño?'))return; PL.rutas.splice(i,1); plSaveMed(); plRenderRutas(); plCanoTotals(); plMedRender(); }
 
 var _plOpenMk=null;
 function plSheetOpen(itemId){ _plOpenMk=itemId; plSheetRender(); document.getElementById('pl-sheet').classList.add('open'); }
@@ -1401,15 +1585,17 @@ function plSheetRender(){
   var ref=findBocaItem(PL.oid,_plOpenMk); if(!ref){plSheetClose();return;}
   var it=ref.item,t=pTipo(it.tipo),dn=itemDoneN(it);
   var chk=BOCA_ETAPAS.map(function(e){var on=!!itemChk(it)[e.k];return '<div onclick="plToggleEtapa(\''+ref.amb.id+'\',\''+it.id+'\',\''+e.k+'\')" style="display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid #2a2a2e;cursor:pointer"><span style="width:20px;height:20px;flex-shrink:0;border:2px solid '+(on?'#12E56B':'#3a3f49')+';background:'+(on?'#12E56B':'transparent')+';border-radius:6px;display:inline-grid;place-items:center">'+(on?'<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#04331b" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>':'')+'</span><span style="font-size:14px;'+(on?'color:#6b7280;text-decoration:line-through':'')+'">'+e.n+'</span></div>';}).join('');
+  var circSel=PL.soc?('<div class="pl-row" style="gap:8px;margin-top:12px"><span style="font-size:12.5px;color:#a0a6b0;white-space:nowrap">Circuito</span><select onchange="plBocaCirc(\''+ref.amb.id+'\',\''+it.id+'\',this.value)" style="flex:1;min-width:0;'+_selIn+'">'+plCircOptsPlain(it.circuitoId||'')+'</select></div>'):(it.circuitoId?('<div style="font-size:12px;color:#a0a6b0;margin-top:10px">Circuito: '+esc(circNombre(it.circuitoId))+'</div>'):'');
   var acc=PL.soc?('<div class="pl-sheet-row" style="margin-top:12px"><button class="pl-btn" onclick="plUnplace(\''+it.id+'\')" style="flex:1;justify-content:center">Quitar del plano</button><button class="pl-btn danger" onclick="plDelBoca(\''+ref.amb.id+'\',\''+it.id+'\')" style="flex:1;justify-content:center">Borrar boca</button></div>'):'';
   document.getElementById('pl-sheet-in').innerHTML=
     '<div class="pl-sheet-h"><span class="sw" style="background:'+t.c+'"></span><b>'+t.n+'</b><span style="margin-left:auto;font-size:12px;color:#a0a6b0">'+esc(ref.amb.nombre)+' · '+dn+'/'+BOCA_ETAPAS.length+'</span></div>'+
-    chk+acc+
+    chk+circSel+acc+
     '<div class="pl-sheet-row" style="margin-top:12px"><button class="pl-btn" onclick="plSheetClose()" style="flex:1;justify-content:center">Cerrar</button></div>';
 }
+function plBocaCirc(aid,itemId,v){ var ref=findBocaItem(PL.oid,itemId); if(!ref)return; ref.item.circuitoId=v||null; saveProd(PL.oid); plCanoTotals(); toast('Circuito asignado'); }
 function plToggleEtapa(aid,itemId,ek){ toggleItemEtapa(PL.oid,aid,itemId,ek); plSheetRender(); }
-function plUnplace(itemId){ var ref=findBocaItem(PL.oid,itemId); if(!ref)return; ref.item.planoId=null; ref.item.x=null; ref.item.y=null; saveProd(PL.oid); plSheetClose(); plRenderMarkers(); plRenderCounts(); toast('Boca quitada del plano (sigue en el ambiente)'); }
-function plDelBoca(aid,itemId){ if(!confirm('¿Borrar esta boca por completo?'))return; delBocaItem(PL.oid,aid,itemId); plSheetClose(); plRenderMarkers(); plRenderCounts(); }
+function plUnplace(itemId){ var ref=findBocaItem(PL.oid,itemId); if(!ref)return; ref.item.planoId=null; ref.item.x=null; ref.item.y=null; saveProd(PL.oid); plSheetClose(); plRenderMarkers(); plRenderCounts(); plUpdatePend(); toast('Boca quitada del plano (sigue en el ambiente)'); }
+function plDelBoca(aid,itemId){ if(!confirm('¿Borrar esta boca por completo?'))return; delBocaItem(PL.oid,aid,itemId); plSheetClose(); plRenderMarkers(); plRenderCounts(); plUpdatePend(); }
 
 function renombrarPlano(){ var nn=prompt('Nuevo nombre del plano:',PL.nombre); if(nn===null)return; nn=nn.trim(); if(!nn)return; PL.nombre=nn; var tt=document.querySelector('#planoScreen .pl-title'); if(tt)tt.textContent=nn; db.collection('planos').doc(PL.id).set({nombre:nn},{merge:true}); }
 function borrarPlano(){ if(!confirm('¿Eliminar este plano? Las bocas colocadas quedan en sus ambientes (sin posición).'))return; var id=PL.id,oid=PL.oid; var p=getProd(oid); (p.ambientes||[]).forEach(function(a){(a.items||[]).forEach(function(it){ if(it.planoId===id){it.planoId=null;it.x=null;it.y=null;} });}); saveProd(oid); Promise.all([db.collection('planos').doc(id).delete(),db.collection('planos_img').doc(id).delete().catch(function(){})]).then(function(){toast('Plano eliminado');cerrarPlano();}); }
